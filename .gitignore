@@ -16,3 +16,4 @@ venv/
 experiments/
 classic_archs/
 
+mlruns/
