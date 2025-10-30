@@ -2,7 +2,9 @@ import argparse
 import json
 import os
 import time
+import yaml
 import pennylane as qml
+from pennylane import qchem
 from pennylane import numpy as np
 
 
@@ -47,23 +49,35 @@ def main():
     # -------------------------
     # Define H₂ molecule using Molecule API
     # -------------------------
-    symbols = ["H", "H"]
-    coordinates = np.array([
-        [0.0, 0.0, -0.6614],
-        [0.0, 0.0,  0.6614]
-    ])
+  # ---- Define H₂ molecule ----
+    with open("configs/config.yaml", "r") as f:
+        cfg = yaml.safe_load(f)
 
+    # Select molecule (H2 or Li3)
+    mol_name = "H2"  # or pass via argparse
+    mol_cfg = cfg["Molecules"][mol_name]
+
+    # --- Define molecule ---
+    symbols = mol_cfg["symbols"]
+    coordinates = np.array(mol_cfg["coordinates"])
+    basis = mol_cfg.get("basis", "sto-3g")
+
+    # Create PennyLane molecule and Hamiltonian
     molecule = qml.qchem.Molecule(symbols, coordinates)
-    H, n_qubits = qml.qchem.molecular_hamiltonian(molecule)
-    print(f"\n=== Molecule: H₂ (bond length = {np.linalg.norm(coordinates[0]-coordinates[1]):.3f} Å) ===")
+    hamiltonian, n_qubits = qml.qchem.molecular_hamiltonian(molecule)
+
     print(f"Number of qubits = {n_qubits}")
-    print("Hamiltonian:\n", H)
+    print("Hamiltonian:\n", hamiltonian)
 
     # -------------------------
     # Hartree–Fock state
     # -------------------------
-    electrons = 2
-    hf_state = qml.qchem.hf_state(electrons, n_qubits)
+      # --- Hartree–Fock reference state ---
+    hf_state = qchem.hf_state(
+        electrons=mol_cfg["n_electrons"],
+        orbitals=mol_cfg["active_orbitals"]
+    )
+
     print("HF reference state:", hf_state)
 
     # -------------------------
@@ -102,7 +116,7 @@ def main():
     def circuit(param):
         qml.BasisState(hf_state, wires=range(n_qubits))
         qml.DoubleExcitation(param, wires=[0, 1, 2, 3])
-        return qml.expval(H)
+        return qml.expval(hamiltonian)
 
     def cost(param):
         return circuit(param)
