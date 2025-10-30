@@ -11,6 +11,11 @@ CNOTs_space = [[y for y in CNOTs if y is not None] for CNOTs in list(itertools.p
 NAS_search_space = list(itertools.product(Rs_space, CNOTs_space))
 
 
+### FOR THE REGULAR CIRCUT ↓↓↓
+### FOR THE REGULAR CIRCUT ↓↓↓
+### FOR THE REGULAR CIRCUT ↓↓↓
+
+
 def layer(params, j, n_qubits):
     '''
     normal layer
@@ -19,15 +24,7 @@ def layer(params, j, n_qubits):
         qml.RY(params[j,  i ], wires=i)
     qml.CNOT(wires=[0, 1])
     qml.CNOT(wires=[1, 2])
-
-
-def qas_layer(params, j, n_qubits, Rs=[qml.RY, qml.RY, qml.RY], CNOTs=[[0, 1], [1, 2]]):
-    for i in range(n_qubits):
-        Rs[i](params[j, i], wires=i)
-    for conn in CNOTs:
-        qml.CNOT(wires=conn)
-
-
+    
 def circuit(params, wires=[0,1,2,3], n_qubits=3, n_layers=3, arch=[]):
     '''
     quantum circuit
@@ -43,20 +40,6 @@ def circuit(params, wires=[0,1,2,3], n_qubits=3, n_layers=3, arch=[]):
         # repeatedly apply each layer in the circuit
         for j in range(n_layers):
             qas_layer(params, j, n_qubits, NAS_search_space[arch[j]][0], NAS_search_space[arch[j]][1])
-
-
-def circuit_search(params, wires=[0,1,2,3], n_qubits=3, n_layers=3, arch=[]):
-    '''
-    quantum circuit
-    '''
-    # nas circuit
-    # repeatedly apply each layer in the circuit
-    qml.BasisState(np.array([1, 1, 0, 0]), wires=wires)
-    for j in range(n_layers):
-        idx = int(arch[j])
-        qas_layer(params, j, n_qubits, NAS_search_space[idx][0], NAS_search_space[idx][1])
-
-
 
 class CircuitModel():
     def __init__(self, dev, n_qubits=3, n_layers=3, arch=''):
@@ -84,8 +67,22 @@ class CircuitModel():
                                 arch=self.arch)
 
 
+### FOR THE SEACH CIRCUT ↓↓↓
+### FOR THE SEACH CIRCUT ↓↓↓
+### FOR THE SEACH CIRCUT ↓↓↓
+
+def qas_layer(params, j, n_qubits, Rs=[qml.RY, qml.RY, qml.RY], CNOTs=[[0, 1], [1, 2]]):
+    for i in range(n_qubits):
+        Rs[i](params[j, i], wires=i)
+    for conn in CNOTs:
+        qml.CNOT(wires=conn)
+
+
+
+
+
 class CircuitSearchModel():
-    def __init__(self, dev, n_qubits=3, n_layers=3, n_experts=5):
+    def __init__(self, dev, n_qubits=3, n_layers=3, n_experts=5, basis_state=None):
         self.dev = dev
         self.n_qubits = n_qubits
         self.n_layers = n_layers
@@ -94,6 +91,8 @@ class CircuitSearchModel():
         # randomly initialize parameters from a normal distribution
         self.params_space = np.random.uniform(0, np.pi * 2, (n_experts, n_layers, len(Rs_space), n_qubits))
         self.params = None
+        self.basis_state = basis_state
+    
     
     def get_params(self, subnet, expert_idx):
         self.subnet = subnet
@@ -112,7 +111,25 @@ class CircuitSearchModel():
             self.params_space[self.expert_idx, j, r_idx:r_idx+1] = params[j, :]
 
     def __call__(self, params, wires):
-        circuit_search(params, wires=wires,
+        self.circuit_search(params, wires=wires,
                        n_qubits=self.n_qubits,
                        n_layers=self.n_layers,
                        arch=self.subnet)
+        
+    def circuit_search(self, params, wires=[0,1,2,3], n_qubits=3, n_layers=3, arch=[]):
+        """
+        Quantum circuit with a configurable initial basis state.
+        """
+        # If no custom basis state is provided, start from |000...0>
+        if self.basis_state is None:
+            self.basis_state = [0] * len(wires)
+
+        # Prepare the initial state
+        qml.BasisState(np.array(self.basis_state), wires=wires)
+
+        # Build NAS circuit layer by layer
+        for j in range(n_layers):
+            idx = int(arch[j])
+            qas_layer(params, j, n_qubits,
+                    NAS_search_space[idx][0],
+                    NAS_search_space[idx][1])

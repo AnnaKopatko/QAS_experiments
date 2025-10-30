@@ -1,0 +1,30 @@
+Molecules:
+  H2:
+    symbols: ["H", "H"]
+    coordinates:
+      - [0.0, 0.0, -0.6614]
+      - [0.0, 0.0,  0.6614]
+    n_electrons: 2
+    basis: "sto-3g"
+    charge: 0
+    spin: 0
+    active_orbitals: 4
+    exact_energy: -1.136189454088  # FCI reference (Hartree)
+
+  Li3:
+    symbols: ["Li", "Li", "Li"]
+    coordinates:
+      - [0.0, 0.0, 0.0]
+      - [0.0, 0.0, 2.5]
+      - [0.0, 0.0, 5.0]
+    n_electrons: 9
+    basis: "sto-3g"
+    charge: 0
+    spin: 0
+    active_orbitals: 9
+    exact_energy: null    # optional, can be filled in after reference calculation
+
+Noise:
+  prob_1q: 0.05     # single-qubit depolarizing noise
+  prob_2q: 0.20     # two-qubit depolarizing noise
+  apply_to_measurements: false
