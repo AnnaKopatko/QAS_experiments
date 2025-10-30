@@ -1,0 +1,192 @@
+import argparse
+import json
+import os
+import time
+import pennylane as qml
+from pennylane import numpy as np
+
+
+# ======================================================
+# Argument Parsing
+# ======================================================
+def get_args():
+    parser = argparse.ArgumentParser("Single-Circuit VQE for H₂")
+
+    parser.add_argument('--epochs', type=int, default=100, help='number of optimization steps')
+    parser.add_argument('--lr', type=float, default=0.2, help='optimizer learning rate')
+    parser.add_argument('--device', type=str, default='default', choices=['default', 'ibmq-sim', 'ibmq'],
+                        help='backend device')
+    parser.add_argument('--seed', type=int, default=0, help='random seed')
+    parser.add_argument('--noise', action='store_true', default=True, help='use noise model')
+
+    args = parser.parse_args()
+
+    experiments_root = "experiments"
+    base_dir = os.path.join(experiments_root, "classic_archs")
+    os.makedirs(base_dir, exist_ok=True)
+    args.save = os.path.join(base_dir, f"eval-H2-{time.strftime('%Y%m%d-%H%M%S')}")
+
+    os.makedirs(args.save, exist_ok=True)
+    with open(os.path.join(args.save, 'args.txt'), 'w') as f:
+        json.dump(vars(args), f, indent=2)
+    return args
+
+
+# ======================================================
+# Main Experiment
+# ======================================================
+def main():
+    args = get_args()
+    np.random.seed(args.seed)
+
+    # Optional noise import
+    if args.noise or args.device in ['ibmq-sim', 'ibmq']:
+        import qiskit
+        import qiskit_aer.noise as noise
+
+    # -------------------------
+    # Define H₂ molecule using Molecule API
+    # -------------------------
+    symbols = ["H", "H"]
+    coordinates = np.array([
+        [0.0, 0.0, -0.6614],
+        [0.0, 0.0,  0.6614]
+    ])
+
+    molecule = qml.qchem.Molecule(symbols, coordinates)
+    H, n_qubits = qml.qchem.molecular_hamiltonian(molecule)
+    print(f"\n=== Molecule: H₂ (bond length = {np.linalg.norm(coordinates[0]-coordinates[1]):.3f} Å) ===")
+    print(f"Number of qubits = {n_qubits}")
+    print("Hamiltonian:\n", H)
+
+    # -------------------------
+    # Hartree–Fock state
+    # -------------------------
+    electrons = 2
+    hf_state = qml.qchem.hf_state(electrons, n_qubits)
+    print("HF reference state:", hf_state)
+
+    # -------------------------
+    # Device & noise setup
+    # -------------------------
+    if args.device in ['ibmq-sim', 'ibmq']:
+        from qiskit import IBMQ
+        account_key = ''
+        assert account_key != '', 'Please fill in your IBMQ account key.'
+        IBMQ.save_account(account_key, overwrite=True)
+        provider = IBMQ.enable_account(account_key)
+        if args.device == 'ibmq':
+            dev = qml.device('qiskit.ibmq', wires=n_qubits, backend='ibmq_ourense', provider=provider)
+        else:
+            backend = provider.get_backend('ibmq_ourense')
+            noise_model = noise.NoiseModel().from_backend(backend)
+            dev = qml.device('qiskit.aer', wires=n_qubits, noise_model=noise_model)
+    else:
+        if args.noise:
+            prob_1 = 0.05
+            prob_2 = 0.2
+            error_1 = noise.depolarizing_error(prob_1, 1)
+            error_2 = noise.depolarizing_error(prob_2, 2)
+            noise_model = noise.NoiseModel()
+            noise_model.add_all_qubit_quantum_error(error_1, ['u1', 'u2', 'u3'])
+            noise_model.add_all_qubit_quantum_error(error_2, ['cx'])
+            print(noise_model)
+            dev = qml.device('qiskit.aer', wires=n_qubits, noise_model=noise_model)
+        else:
+            dev = qml.device("default.qubit", wires=n_qubits)
+
+    # -------------------------
+    # Circuit definition
+    # -------------------------
+    @qml.qnode(dev, interface="autograd")
+    def circuit(param):
+        qml.BasisState(hf_state, wires=range(n_qubits))
+        qml.DoubleExcitation(param, wires=[0, 1, 2, 3])
+        return qml.expval(H)
+
+    def cost(param):
+        return circuit(param)
+
+    # -------------------------
+    # Optimization
+    # -------------------------
+    opt = qml.AdamOptimizer(stepsize=args.lr)
+    exact_value = -1.136189454088  # FCI reference
+    param = np.array(0.0, requires_grad=True)
+
+    energies = []
+    print("\n=== Training Start ===")
+    for epoch in range(args.epochs):
+        param = opt.step(cost, param)
+        energy = cost(param)
+        energies.append(float(energy))
+        deviation = abs(energy - exact_value)
+        if epoch % 5 == 0:
+            print(f"Step {epoch + 1:3d}: Energy = {energy:.8f} Ha, ΔE = {deviation:.8f}")
+
+    print("\n=== Training Complete ===")
+    print(f"Final optimized parameter θ = {float(param):.6f}")
+    print(f"Final energy = {float(energies[-1]):.8f} Ha")
+    print(f"Deviation from FCI = {abs(energies[-1] - exact_value):.8f} Ha "
+          f"({abs(energies[-1] - exact_value)*627.503:.4f} kcal/mol)")
+
+    # -------------------------
+    # Save training results
+    # -------------------------
+    records = {
+        "energies": energies,
+        "final_energy": float(energies[-1]),
+        "final_param": float(param),
+        "deviation": float(abs(energies[-1] - exact_value))
+    }
+    with open(os.path.join(args.save, "records.json"), "w") as f:
+        json.dump(records, f, indent=2)
+    print(f"\nSaved results to {args.save}/records.json")
+
+    # -------------------------
+    # Visualization
+    # -------------------------
+    try:
+        import matplotlib.pyplot as plt
+
+        # ---- Energy convergence ----
+        plt.figure(figsize=(6, 4))
+        plt.plot(range(1, len(energies)+1), energies, marker='o', label='Energy')
+        plt.axhline(y=exact_value, color='r', linestyle='--', label='FCI Energy')
+        plt.title("VQE Convergence for H₂")
+        plt.xlabel("Iteration")
+        plt.ylabel("Energy (Ha)")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(os.path.join(args.save, "energy_convergence.png"), dpi=300)
+        plt.close()
+        print(f"Saved convergence plot to {args.save}/energy_convergence.png")
+
+        # ---- High-level circuit visualization ----
+        drawer = qml.draw_mpl(circuit)
+        fig, _ = drawer(param)
+        fig.savefig(os.path.join(args.save, "architecture_highlevel.png"), dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved high-level circuit diagram to {args.save}/architecture_highlevel.png")
+
+        # ---- Decomposed circuit visualization ----
+        @qml.qnode(dev)
+        def decomposed_circuit(param):
+            qml.BasisState(hf_state, wires=range(n_qubits))
+            for op in qml.DoubleExcitation(param, wires=[0, 1, 2, 3]).decomposition():
+                op.queue()
+            return qml.expval(H)
+
+        drawer_decomp = qml.draw_mpl(decomposed_circuit)
+        fig, _ = drawer_decomp(param)
+        fig.savefig(os.path.join(args.save, "architecture_decomposed.png"), dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved decomposed circuit diagram to {args.save}/architecture_decomposed.png")
+
+    except Exception as e:
+        print(f"Visualization skipped: {e}")
+
+
+if __name__ == "__main__":
+    main()

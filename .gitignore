@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Virtual environments
+venv/
+.env/
+
+# OS
+.DS_Store
+
+# Project-specific
+experiments/
+classic_archs/
+
+configs/
