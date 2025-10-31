@@ -171,9 +171,66 @@ def main():
     with open(os.path.join(args.save, "records.json"), "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nSaved results to {args.save}/records.json")
-
+    
     if args.log_experiment:
         mlflow.log_artifact(os.path.join(args.save, "records.json"))
+
+    # -------------------------
+    # Visualization
+    # -------------------------
+    try:
+        import matplotlib.pyplot as plt
+
+        # ---- Energy convergence ----
+        plt.figure(figsize=(6, 4))
+        plt.plot(range(1, len(energies)+1), energies, marker='o', label='Energy')
+        plt.axhline(y=exact_value, color='r', linestyle='--', label='FCI Energy')
+        plt.title(f"VQE Convergence for {args.mol_name}")
+        plt.xlabel("Iteration")
+        plt.ylabel("Energy (Ha)")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+
+        energy_plot_path = os.path.join(args.save, "energy_convergence.png")
+        plt.savefig(energy_plot_path, dpi=300)
+        plt.close()
+        print(f"Saved convergence plot to {energy_plot_path}")
+
+        # ---- High-level circuit visualization ----
+        drawer = qml.draw_mpl(circuit)
+        fig, _ = drawer(param)
+        highlevel_path = os.path.join(args.save, "architecture_highlevel.png")
+        fig.savefig(highlevel_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved high-level circuit diagram to {highlevel_path}")
+
+        # ---- Decomposed circuit visualization ----
+        @qml.qnode(dev)
+        def decomposed_circuit(param):
+            qml.BasisState(hf_state, wires=range(n_qubits))
+            for op in qml.DoubleExcitation(param, wires=[0, 1, 2, 3]).decomposition():
+                op.queue()
+            return qml.expval(hamiltonian)
+
+        drawer_decomp = qml.draw_mpl(decomposed_circuit)
+        fig, _ = drawer_decomp(param)
+        decomposed_path = os.path.join(args.save, "architecture_decomposed.png")
+        fig.savefig(decomposed_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved decomposed circuit diagram to {decomposed_path}")
+
+        # ---- Log plots to MLflow ----
+        if args.log_experiment:
+            mlflow.log_artifact(energy_plot_path)
+            mlflow.log_artifact(highlevel_path)
+            mlflow.log_artifact(decomposed_path)
+            print("Logged all plots to MLflow successfully.")
+
+    except Exception as e:
+        print(f"Visualization skipped: {e}")
+        
+    if args.log_experiment:
         mlflow.end_run()
 
 

@@ -1,6 +1,6 @@
 import pennylane as qml
 from pennylane import numpy as np
-from pennylane.qchem.operations import single_excitation, double_excitation
+from pennylane.ops.qubit import SingleExcitation, DoubleExcitation
 
 # ---- Molecule definition (LiH) ----
 symbols = ["Li", "H"]
@@ -9,7 +9,7 @@ coordinates = np.array([
     [0.0, 0.0, 1.6]
 ])
 
-# Build molecule and Hamiltonian
+# ---- Build molecule and Hamiltonian ----
 molecule = qml.qchem.Molecule(symbols, coordinates)
 H, n_qubits = qml.qchem.molecular_hamiltonian(
     molecule,
@@ -36,13 +36,13 @@ dev = qml.device("default.qubit", wires=n_qubits)
 # ---- Manual UCCSD ansatz ----
 def uccsd_ansatz(params, wires):
     idx = 0
-    # single excitations
+    # Single excitations
     for s in singles:
-        single_excitation(params[idx], s, wires=wires)
+        SingleExcitation(params[idx], wires=[wires[i] for i in s])
         idx += 1
-    # double excitations
+    # Double excitations
     for d in doubles:
-        double_excitation(params[idx], d, wires=wires)
+        DoubleExcitation(params[idx], wires=[wires[i] for i in d])
         idx += 1
 
 # ---- QNode ----
@@ -71,8 +71,8 @@ for n in range(max_iterations):
     conv = np.abs(energies[-1] - energies[-2])
     if n % 2 == 0:
         print(f"Step = {n:3d},  Energy = {curr_energy:.8f} Ha")
-    if conv <= conv_tol:
-        break
+    # if conv <= conv_tol:
+    #     break
 
 print("\nFinal ground-state energy = {:.8f} Ha".format(curr_energy))
 print("Optimal parameters = ", theta)
@@ -83,7 +83,7 @@ try:
     plt.plot(energies, marker='o')
     plt.xlabel("Iteration")
     plt.ylabel("Energy (Ha)")
-    plt.title("VQE Optimization for LiH (Manual UCCSD)")
+    plt.title("VQE Optimization for LiH (UCCSD)")
     plt.grid(True)
     plt.show()
 except Exception as e:
