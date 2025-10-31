@@ -8,6 +8,8 @@ from pennylane import qchem
 from pennylane import numpy as np
 import mlflow
 from utils.molecule_utils import load_molecule_and_hf
+from utils.circut_utils import build_single_double_circuit, build_uccsd_circuit, build_decomposed_circuit
+
 
 
 
@@ -24,8 +26,13 @@ def get_args():
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--noise', action='store_true', default=False, help='use noise model')
     parser.add_argument('--log_experiment', action='store_true', default=False, help='enable MLflow logging')
+    
+    # NEW: Architecture selection
+    parser.add_argument('--architecture', type=str, default='single_double', 
+                        choices=['single_double', 'uccsd'],
+                        help='Circuit architecture: single_double (one DoubleExcitation) or uccsd (full UCCSD ansatz)')
 
-    parser.add_argument('--mol_name', type=str, default='LiH',
+    parser.add_argument('--mol_name', type=str, default='H2',
                         choices=['H2', 'LiH'],
                         help='Select molecule to simulate (H2 or LiH)')
 
@@ -34,7 +41,7 @@ def get_args():
     experiments_root = "experiments"
     base_dir = os.path.join(experiments_root, "classic_archs")
     os.makedirs(base_dir, exist_ok=True)
-    args.save = os.path.join(base_dir, f"eval-{args.mol_name}-{time.strftime('%Y%m%d-%H%M%S')}")
+    args.save = os.path.join(base_dir, f"eval-{args.mol_name}-{args.architecture}-{time.strftime('%Y%m%d-%H%M%S')}")
     os.makedirs(args.save, exist_ok=True)
 
     with open(os.path.join(args.save, 'args.txt'), 'w') as f:
@@ -57,14 +64,13 @@ def main():
     # -------------------------
     # Load molecule and HF state
     # -------------------------
-        # ---- Define H₂ molecule ----
     with open("configs/config.yaml", "r") as f:
         cfg = yaml.safe_load(f)
 
-    # Select molecule (H2 or Li3)
     mol_name = args.mol_name
     mol_cfg = cfg["Molecules"][mol_name]
     hamiltonian, n_qubits, hf_state = load_molecule_and_hf(mol_cfg=mol_cfg)
+    n_electrons = mol_cfg.get("n_electrons", 2)  # Add this to your config
 
     # -------------------------
     # Start MLflow run (if enabled)
@@ -72,7 +78,8 @@ def main():
     if args.log_experiment:
         mlflow.set_tracking_uri("file:./mlruns")
         mlflow.set_experiment("QAS_VQE_Experiments")
-        run_name = f"{args.mol_name}_{args.noise}_run_{time.strftime('%Y%m%d-%H%M%S')}"
+        noise_id = "noise" if args.noise else "no_noise"
+        run_name = f"{args.mol_name}_{args.architecture}_{noise_id}_run_{time.strftime('%Y%m%d-%H%M%S')}"
         mlflow.start_run(run_name=run_name)
 
         mlflow.log_params({
@@ -82,7 +89,9 @@ def main():
             "seed": args.seed,
             "noise": args.noise,
             "molecule": args.mol_name,
+            "architecture": args.architecture,
             "n_qubits": n_qubits,
+            "n_electrons": n_electrons,
             "basis": mol_cfg.get("basis", "sto-3g")
         })
 
@@ -119,24 +128,24 @@ def main():
             dev = qml.device("default.qubit", wires=n_qubits)
 
     # -------------------------
-    # Circuit definition
+    # Build circuit based on architecture
     # -------------------------
-    @qml.qnode(dev, interface="autograd")
-    def circuit(param):
-        qml.BasisState(hf_state, wires=range(n_qubits))
-        #wires=[0, 1, 2, 3] will work for any molecule, since DoubleExcitation always needs 4 qubits.
-        qml.DoubleExcitation(param, wires=[0, 1, 2, 3])
-        return qml.expval(hamiltonian)
-
-    def cost(param):
-        return circuit(param)
+    singles, doubles = None, None
+    
+    if args.architecture == 'single_double':
+        circuit, cost, param = build_single_double_circuit(dev, hamiltonian, hf_state, n_qubits)
+        print("\n=== Using Single DoubleExcitation Architecture ===")
+    else:  # uccsd
+        circuit, cost, param, singles, doubles = build_uccsd_circuit(
+            dev, hamiltonian, hf_state, n_qubits, n_electrons
+        )
+        print("\n=== Using Full UCCSD Architecture ===")
 
     # -------------------------
     # Optimization
     # -------------------------
     opt = qml.AdamOptimizer(stepsize=args.lr)
     exact_value = mol_cfg["exact_energy"]
-    param = np.array(0.0, requires_grad=True)
     energies = []
 
     print("\n=== Training Start ===")
@@ -165,8 +174,9 @@ def main():
     results = {
         "energies": energies,
         "final_energy": float(energies[-1]),
-        "final_param": float(param),
-        "deviation": float(abs(energies[-1] - exact_value))
+        "final_param": param.tolist() if hasattr(param, 'tolist') else float(param),
+        "deviation": float(abs(energies[-1] - exact_value)),
+        "architecture": args.architecture
     }
     with open(os.path.join(args.save, "records.json"), "w") as f:
         json.dump(results, f, indent=2)
@@ -185,7 +195,7 @@ def main():
         plt.figure(figsize=(6, 4))
         plt.plot(range(1, len(energies)+1), energies, marker='o', label='Energy')
         plt.axhline(y=exact_value, color='r', linestyle='--', label='FCI Energy')
-        plt.title(f"VQE Convergence for {args.mol_name}")
+        plt.title(f"VQE Convergence for {args.mol_name} ({args.architecture})")
         plt.xlabel("Iteration")
         plt.ylabel("Energy (Ha)")
         plt.legend()
@@ -206,13 +216,9 @@ def main():
         print(f"Saved high-level circuit diagram to {highlevel_path}")
 
         # ---- Decomposed circuit visualization ----
-        @qml.qnode(dev)
-        def decomposed_circuit(param):
-            qml.BasisState(hf_state, wires=range(n_qubits))
-            for op in qml.DoubleExcitation(param, wires=[0, 1, 2, 3]).decomposition():
-                op.queue()
-            return qml.expval(hamiltonian)
-
+        decomposed_circuit = build_decomposed_circuit(
+            dev, hamiltonian, hf_state, n_qubits, args.architecture, param, singles, doubles
+        )
         drawer_decomp = qml.draw_mpl(decomposed_circuit)
         fig, _ = drawer_decomp(param)
         decomposed_path = os.path.join(args.save, "architecture_decomposed.png")
