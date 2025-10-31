@@ -16,68 +16,93 @@ NAS_search_space = list(itertools.product(Rs_space, CNOTs_space))
 ### FOR THE REGULAR CIRCUT ↓↓↓
 
 
+# ======================================================
+# Regular Layer (works for any n_qubits)
+# ======================================================
 def layer(params, j, n_qubits):
-    '''
-    normal layer
-    '''
+    """Standard circuit layer: RY + chain CNOTs."""
     for i in range(n_qubits):
-        qml.RY(params[j,  i ], wires=i)
-    qml.CNOT(wires=[0, 1])
-    qml.CNOT(wires=[1, 2])
-    
-def circuit(params, wires=[0,1,2,3], n_qubits=3, n_layers=3, arch=[]):
-    '''
-    quantum circuit
-    '''
-    qml.BasisState(np.array([1, 1, 0, 0]), wires=wires)
-    if arch == '':
-        # normal circuit
-        # repeatedly apply each layer in the circuit
-        for j in range(n_layers):
-            layer(params, j, n_qubits)
-    else:
-        # nas circuit
-        # repeatedly apply each layer in the circuit
-        for j in range(n_layers):
-            qas_layer(params, j, n_qubits, NAS_search_space[arch[j]][0], NAS_search_space[arch[j]][1])
+        qml.RY(params[j, i], wires=i)
 
-class CircuitModel():
-    def __init__(self, dev, n_qubits=3, n_layers=3, arch=''):
+    # CNOT chain across all adjacent pairs
+    for i in range(n_qubits - 1):
+        qml.CNOT(wires=[i, i + 1])
+
+
+# ======================================================
+# Generic Circuit Builder
+# ======================================================
+def circuit(params, wires, n_qubits, n_layers, arch=None, basis_state=None):
+    """Build either a regular or NAS circuit."""
+    # Default basis state = all zeros
+    if basis_state is None:
+        basis_state = np.zeros(n_qubits, dtype=int)
+
+    qml.BasisState(np.array(basis_state), wires=wires)
+
+    for j in range(n_layers):
+        if arch is None or arch == "":
+            layer(params, j, n_qubits)
+        else:
+            idx = int(arch[j])
+            Rs, CNOTs = NAS_search_space[idx]
+            qas_layer(params, j, n_qubits, Rs, CNOTs)
+
+
+# ======================================================
+# Circuit Model
+# ======================================================
+class CircuitModel:
+    def __init__(self, dev, n_qubits=3, n_layers=3, arch="", basis_state=None):
         self.dev = dev
         self.n_qubits = n_qubits
         self.n_layers = n_layers
-        if arch != '':
-            self.arch = [int(x) for x in arch.split('-')]
-            assert len(self.arch) == n_layers
-            print('----NAS circuit----')
+        self.basis_state = basis_state
+
+        # Parse architecture if NAS mode is used
+        if arch != "":
+            self.arch = [int(x) for x in arch.split("-")]
+            assert len(self.arch) == n_layers, "Architecture length != number of layers"
+            print("----NAS circuit----")
             for i, idx in enumerate(self.arch):
-                print('------layer {}-----'.format(i))
-                print('Rs: {}'.format(NAS_search_space[idx][0]))
-                print('CNOTs: {}'.format(NAS_search_space[idx][1]))
+                Rs, CNOTs = NAS_search_space[idx]
+                print(f"------Layer {i}------")
+                print(f"Rs: {Rs}")
+                print(f"CNOTs: {CNOTs}")
         else:
-            self.arch = ''
-        '''init params'''
-        # randomly initialize parameters from a normal distribution
-        self.params = np.random.uniform(0, np.pi * 2, (n_layers,   n_qubits))
+            self.arch = ""
 
-    def __call__(self, params, wires):
-        circuit(params, wires=wires,
-                                n_qubits=self.n_qubits,
-                                n_layers=self.n_layers,
-                                arch=self.arch)
+        # Initialize parameters
+        self.params = np.random.uniform(0, 2 * np.pi, (n_layers, n_qubits))
 
+    def __call__(self, params=None, wires=None):
+        if params is None:
+            params = self.params
+        if wires is None:
+            wires = range(self.n_qubits)
+        circuit(params, wires, self.n_qubits, self.n_layers, self.arch, self.basis_state)
 
 ### FOR THE SEACH CIRCUT ↓↓↓
 ### FOR THE SEACH CIRCUT ↓↓↓
 ### FOR THE SEACH CIRCUT ↓↓↓
 
-def qas_layer(params, j, n_qubits, Rs=[qml.RY, qml.RY, qml.RY], CNOTs=[[0, 1], [1, 2]]):
+def qas_layer(params, j, n_qubits, Rs=None, CNOTs=None):
+    """
+    Apply one layer of parameterized rotations + entangling CNOTs.
+    Rs: list of rotation gates (default repeats RY)
+    CNOTs: list of entangling connections
+    """
+    if Rs is None:
+        Rs = [qml.RY] * n_qubits
+    if CNOTs is None:
+        CNOTs = [[i, (i + 1) % n_qubits] for i in range(n_qubits - 1)]
+
     for i in range(n_qubits):
-        Rs[i](params[j, i], wires=i)
+        gate = Rs[i % len(Rs)]   # cycle Rs if fewer than n_qubits
+        gate(params[j, i], wires=i)
+
     for conn in CNOTs:
         qml.CNOT(wires=conn)
-
-
 
 
 

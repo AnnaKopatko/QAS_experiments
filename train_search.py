@@ -2,13 +2,16 @@ import argparse
 import json
 import yaml
 import os
-from pennylane import qchem
+
 import time
 import pennylane as qml
 from pennylane import numpy as np
 from model import CircuitSearchModel, NAS_search_space
 from evolution.evolution_sampler import EvolutionSampler
 import mlflow
+from utils.molecule_utils import load_molecule_and_hf
+from utils.utils import parse_architecture_key, expert_evaluator
+
 
 # ======================================================
 # Argument Parsing
@@ -24,6 +27,13 @@ def get_args():
     parser.add_argument('--ea_gens', type=int, default=10, help='number of generations (evolution)')
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
+    parser.add_argument(
+        '--mol_name',
+        type=str,
+        default='H2',
+        choices=['H2', 'LiH'],
+        help='Select molecule to simulate (H2 or LiH)'
+    )
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--log_experiment', action='store_true', default=False,
                     help='enable MLflow experiment logging')
@@ -45,41 +55,7 @@ def get_args():
     return args
 
 
-# ======================================================
-# Utility: parse subnet safely
-# ======================================================
-def parse_architecture_key(key, search_space_size):
-    """Convert a stored architecture key into integer indices."""
-    key_str = str(key).strip()
-    if not key_str:
-        return []
-    if key_str.startswith('[') and key_str.endswith(']'):
-        arr = np.fromstring(key_str.strip('[]'), sep=' ')
-        if arr.size == 0:
-            return []
-        return np.clip(np.rint(arr), 0, search_space_size - 1).astype(int).tolist()
-    if '-' in key_str:
-        return [int(x) for x in key_str.split('-') if x]
-    tokens = [tok for tok in key_str.replace(',', ' ').split() if tok]
-    values = []
-    for tok in tokens:
-        try:
-            val = int(np.clip(np.rint(float(tok)), 0, search_space_size - 1))
-            values.append(val)
-        except ValueError:
-            continue
-    return values if values else [int(key_str)]
 
-
-def expert_evaluator(model, subnet, n_experts, cost_fn):
-    """Choose the expert with the lowest energy for given subnet."""
-    best_idx, best_loss = 0, float('inf')
-    for i in range(n_experts):
-        model.params = model.get_params(subnet, i)
-        loss = cost_fn(model.params)
-        if loss < best_loss:
-            best_loss, best_idx = loss, i
-    return best_idx
 
 
 # ======================================================
@@ -99,7 +75,7 @@ def main():
         cfg = yaml.safe_load(f)
 
     # Select molecule (H2 or Li3)
-    mol_name = "H2"  # or pass via argparse
+    mol_name = args.mol_name
     mol_cfg = cfg["Molecules"][mol_name]
     
     if args.log_experiment:
@@ -122,21 +98,8 @@ def main():
             "seed": args.seed,
         })
 
-
-    # --- Define molecule ---
-    symbols = mol_cfg["symbols"]
-    coordinates = np.array(mol_cfg["coordinates"])
-    basis = mol_cfg.get("basis", "sto-3g")
-
-    # Create PennyLane molecule and Hamiltonian
-    molecule = qml.qchem.Molecule(symbols, coordinates)
-    hamiltonian, qubits = qml.qchem.molecular_hamiltonian(molecule)
-
-
-    print(f"\n=== Molecule: H₂ ===")
-    print(f"Qubits: {qubits}")
-    print("Hamiltonian:\n", hamiltonian)
-
+# ---- Load molecule and HF state ----
+    hamiltonian, qubits, hf_state = load_molecule_and_hf(mol_cfg)
     noise_cfg = cfg["Noise"]
     # ---- Device ----
     if args.device in ['ibmq-sim', 'ibmq']:
@@ -168,12 +131,7 @@ def main():
     args.n_qubits = qubits
 
     # --- Hartree–Fock reference state ---
-    basis_state = qchem.hf_state(
-        electrons=mol_cfg["n_electrons"],
-        orbitals=mol_cfg["active_orbitals"]
-    )
-
-    print(f"Loaded molecule {mol_name}: {symbols}, qubits = {qubits}")
+    basis_state = hf_state
     print("HF basis state:", basis_state)
     
     # ---- Model ----

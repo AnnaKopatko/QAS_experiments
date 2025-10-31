@@ -8,21 +8,20 @@ Molecules:
     basis: "sto-3g"
     charge: 0
     spin: 0
-    active_orbitals: 4
+    active_orbitals: 2
     exact_energy: -1.136189454088  # FCI reference (Hartree)
 
-  Li3:
-    symbols: ["Li", "Li", "Li"]
+  LiH:
+    symbols: ["Li", "H"]
     coordinates:
-      - [0.0, 0.0, 0.0]
-      - [0.0, 0.0, 2.5]
-      - [0.0, 0.0, 5.0]
-    n_electrons: 9
+      - [0.0, 0.0, 0.0]         # Li at origin
+      - [0.0, 0.0, 1.595]       # H at 1.595 Å (≈ equilibrium bond length)
+    n_electrons: 4
     basis: "sto-3g"
     charge: 0
     spin: 0
-    active_orbitals: 9
-    exact_energy: null    # optional, can be filled in after reference calculation
+    active_orbitals: 6
+    exact_energy: -7.8825378195   # FCI reference (Hartree)
 
 Noise:
   prob_1q: 0.05     # single-qubit depolarizing noise
