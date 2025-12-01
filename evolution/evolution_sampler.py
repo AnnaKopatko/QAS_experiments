@@ -1,7 +1,7 @@
 import numpy as np
 from evolution import nsganet as engine
 from pymoo.core.problem import Problem
-
+import mlflow 
 from pymoo.optimize import minimize
 
 
@@ -38,10 +38,6 @@ class EvolutionSampler:
         sorted_subnet = sorted(subnet_eval_dict.items(), key=lambda i: i[1])
         sorted_subnet_key = [x[0] for x in sorted_subnet]
         subnet_topk = sorted_subnet_key[:10]
-        print('== search result ==')
-        print(sorted_subnet)
-        print('== best subnet ==')
-        print(subnet_topk)
         self.subnet_topk = subnet_topk
         self.subnet_eval_dict = subnet_eval_dict
         return sorted_subnet
@@ -84,7 +80,9 @@ class NAS(Problem):
 
             print('==evaluation subnet:{} energy:{}'.format(key, energy))
 
-            objs[i, 0] = energy  # lower energy is better
+            objs[i, 0] = energy 
+            if True:
+                mlflow.log_metric("evolution_energy", float(energy), i)# lower energy is better
             # objs[i, 1] = ...  # additional objectives if needed
 
             self._n_evaluated += 1

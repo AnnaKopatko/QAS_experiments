@@ -16,11 +16,11 @@ Molecules:
     coordinates:
       - [0.0, 0.0, 0.0]         # Li at origin
       - [0.0, 0.0, 1.595]       # H at 1.595 Å (≈ equilibrium bond length)
-    n_electrons: 4
+    n_electrons: 2 
     basis: "sto-3g"
     charge: 0
     spin: 0
-    active_orbitals: 6
+    active_orbitals: 4
     exact_energy: -7.8825378195   # FCI reference (Hartree)
 
 Noise:

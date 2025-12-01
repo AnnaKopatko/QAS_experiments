@@ -1,5 +1,7 @@
 import pennylane as qml
 from pennylane import numpy as np
+from pennylane.transforms import decompose
+from functools import partial
 
 
 # ======================================================
@@ -59,30 +61,34 @@ def build_uccsd_circuit(dev, hamiltonian, hf_state, n_qubits, n_electrons):
 
 
 def build_decomposed_circuit(dev, hamiltonian, hf_state, n_qubits, architecture, param, singles=None, doubles=None):
-    """Build decomposed circuit for visualization based on architecture."""
-    if architecture == 'single_double':
-        @qml.qnode(dev)
+    """
+    Build a fully decomposed circuit (using allowed gates) for visualization and specs.
+    This version uses the modern PennyLane transform API with functools.partial.
+    """
+    allowed_gates = {qml.RX, qml.RY, qml.RZ, qml.CNOT}
+
+    if architecture == "single_double":
+        # --- Single DoubleExcitation ---
+        @partial(decompose, gate_set=allowed_gates)
+        @qml.qnode(dev, interface="autograd")
         def decomposed_circuit(p):
             qml.BasisState(hf_state, wires=range(n_qubits))
-            for op in qml.DoubleExcitation(p, wires=[0, 1, 2, 3]).decomposition():
-                op.queue()
+            qml.DoubleExcitation(p, wires=[0, 1, 2, 3])
             return qml.expval(hamiltonian)
-    else:  # uccsd
-        @qml.qnode(dev)
+
+    else:
+        # --- Full UCCSD (Singles + Doubles) ---
+        @partial(decompose, gate_set=allowed_gates)
+        @qml.qnode(dev, interface="autograd")
         def decomposed_circuit(params):
             qml.BasisState(hf_state, wires=range(n_qubits))
             idx = 0
-            # Decompose single excitations
             for s in singles:
-                for op in qml.SingleExcitation(params[idx], wires=s).decomposition():
-                    op.queue()
+                qml.SingleExcitation(params[idx], wires=s)
                 idx += 1
-            # Decompose double excitations
             for d in doubles:
-                for op in qml.DoubleExcitation(params[idx], wires=d).decomposition():
-                    op.queue()
+                qml.DoubleExcitation(params[idx], wires=d)
                 idx += 1
             return qml.expval(hamiltonian)
-    
-    return decomposed_circuit
 
+    return decomposed_circuit

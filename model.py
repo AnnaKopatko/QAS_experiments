@@ -32,7 +32,7 @@ def layer(params, j, n_qubits):
 # ======================================================
 # Generic Circuit Builder
 # ======================================================
-def circuit(params, wires, n_qubits, n_layers, arch=None, basis_state=None):
+def circuit(params, wires, n_qubits, n_layers, arch  =None, basis_state=None):
     """Build either a regular or NAS circuit."""
     # Default basis state = all zeros
     if basis_state is None:
