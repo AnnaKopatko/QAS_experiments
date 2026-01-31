@@ -32,7 +32,7 @@ def get_args():
                         choices=['default', 'ibmq-sim', 'ibmq'],
                         help='backend device')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
-    parser.add_argument('--noise', action='store_true', default=True,
+    parser.add_argument('--noise', default=True,
                         help='use noise model')
     parser.add_argument('--log_experiment', action='store_true', default=True,
                         help='enable Aim logging')
@@ -41,8 +41,8 @@ def get_args():
                         choices=['single_double', 'uccsd'],
                         help='Circuit architecture')
 
-    parser.add_argument('--mol_name', type=str, default='LiH',
-                        choices=['H2', 'LiH'],
+    parser.add_argument('--mol_name', type=str, default='BeH2',
+                        choices=['H2', 'LiH', 'BeH2'],
                         help='Molecule to simulate')
 
     args = parser.parse_args()
@@ -97,14 +97,15 @@ def main():
                 experiment=f"QAS_Experiment"
             )
             run['name'] = run_name
-            run["hparams"] = {
+            run['mol_name'] = args.mol_name
+            run['noise'] = args.noise
+            run['architecture'] = args.architecture
+            run["train_params"] = {
                 "epochs": args.epochs,
+                "optimizer": "Adam",
                 "lr": args.lr,
                 "device": args.device,
                 "seed": args.seed,
-                "noise": args.noise,
-                "molecule": args.mol_name,
-                "architecture": args.architecture,
                 "n_qubits": n_qubits,
                 "n_electrons": n_electrons,
                 "basis": mol_cfg.get("basis", "sto-3g")
@@ -171,23 +172,42 @@ def main():
         print("\n=== Using Full UCCSD Architecture ===")
 
     # ======================================================
-    # Training Loop (QNGOptimizer)
+    # Training Loop (Standard Optimizer)
     # ======================================================
-    step_size = args.lr
-    opt = qml.QNGOptimizer(stepsize=step_size, lam=0.001, approx='block-diag')
 
     exact_value = mol_cfg["exact_energy"]
+
+    # ----- Initial random energy (QAS-compatible) -----
+    initial_random_energy = float(cost(param))
+    initial_random_deviation = abs(initial_random_energy - exact_value)
+
+    if run is not None:
+        run.track(initial_random_energy, name="initial_random_energy")
+        run.track(float(initial_random_deviation), name="initial_random_deviation")
+
+    print(f"Initial random energy: {initial_random_energy:.8f} Ha")
+
+    opt = qml.AdamOptimizer(stepsize=args.lr)
+
     energies = []
 
-    print("\n=== Training Start (QNGOptimizer) ===")
+    # ----- Track best energy internally ONLY -----
+    best_finetune_energy = initial_random_energy
+    best_param = param.copy()
+
+    print("\n=== Training Start (AdamOptimizer) ===")
     start_time = time.time()
 
     for epoch in range(args.epochs):
-        param = opt.step(circuit, param)
-        # Natural gradient update
+        param = opt.step(cost, param)
         energy = float(cost(param))
         deviation = float(abs(energy - exact_value))
         energies.append(energy)
+
+        # Track best (internal only)
+        if energy < best_finetune_energy:
+            best_finetune_energy = energy
+            best_param = param.copy()
 
         if run is not None:
             try:
@@ -197,23 +217,45 @@ def main():
                 print(f"⚠️ Failed to log metrics at epoch {epoch}: {e}")
 
         if epoch % 5 == 0:
-            print(f"Step {epoch+1:3d}: Energy = {energy:.8f} Ha, ΔE = {deviation:.8f}")
-
+            print(
+                f"Step {epoch+1:3d}: "
+                f"Energy = {energy:.8f} Ha, "
+                f"ΔE = {deviation:.8f}"
+            )
 
     duration = time.time() - start_time
+
+    # ----- Final metrics -----
+    final_energy = float(energies[-1])
+    final_deviation = abs(final_energy - exact_value)
+
     print("\n=== Training Complete ===")
-    print(f"Final energy = {energies[-1]:.8f} Ha")
-    print(f"Deviation from FCI = {abs(energies[-1] - exact_value):.8f} Ha")
+    print(f"Final energy = {final_energy:.8f} Ha")
+    print(f"Best finetune energy = {best_finetune_energy:.8f} Ha")
+    print(f"Deviation from FCI = {final_deviation:.8f} Ha")
     print(f"Training time = {duration:.2f}s")
+
+    if run is not None:
+        # single-value metrics (NO step → NOT a time series)
+        run.track(best_finetune_energy, name="best_finetune_energy")
+        run.track(final_energy, name="final_energy")
+        run.track(float(final_deviation), name="final_deviation")
+        run.track(
+            float(initial_random_energy - best_finetune_energy),
+            name="improvement_over_random"
+        )
+
+        run["training_epochs_used"] = int(args.epochs)
 
     # ======================================================
     # Save Results
     # ======================================================
     results = {
         "energies": energies,
-        "final_energy": energies[-1],
-        "final_param": param.tolist() if hasattr(param, 'tolist') else float(param),
-        "deviation": float(abs(energies[-1] - exact_value)),
+        "final_energy": final_energy,
+        "best_finetune_energy": best_finetune_energy,
+        "final_param": best_param.tolist() if hasattr(best_param, "tolist") else float(best_param),
+        "final_deviation": float(final_deviation),
         "architecture": args.architecture,
         "training_time": duration
     }
@@ -227,14 +269,14 @@ def main():
     if run is not None:
         try:
             run["final_results"] = results
-            
-            # Log the JSON content as text, not the path
+
             with open(records_path, "r") as f:
                 records_content = f.read()
             run.track(AimText(records_content), name="records_json", context={"type": "artifact"})
-            
+
         except Exception as e:
             print(f"⚠️ Failed to log final results: {e}")
+
 
     # ======================================================
     # Visualization & Artifacts
@@ -290,12 +332,11 @@ def main():
                     run.track(AimText(specs_content), name="circuit_specs_txt", 
                              context={"type": "artifact"})
                 
-                # Log circuit specs as metrics
-                run["circuit_specs"] = {
-                    "num_wires": int(num_wires),
-                    "num_gates": int(num_gates),
-                    "depth": int(depth)
-                }
+                # ---- Log circuit complexity as single-value metrics ----
+                run.track(int(num_wires), name="num_wires")
+                run.track(int(num_gates), name="num_gates")
+                run.track(int(depth), name="circuit_depth")
+
                 
                 print("✅ Successfully logged all artifacts to Aim")
                 

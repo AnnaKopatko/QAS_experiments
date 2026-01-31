@@ -23,6 +23,19 @@ Molecules:
     active_orbitals: 4
     exact_energy: -7.8825378195   # FCI reference (Hartree)
 
+  BeH2:
+    symbols: ["Be", "H", "H"]
+    coordinates:
+      - [0.0, 0.0, 0.0]
+      - [0.0, 0.0, 1.326]
+      - [0.0, 0.0, -1.326]
+    n_electrons: 2
+    basis: "sto-3g"
+    charge: 0
+    spin: 0
+    active_orbitals: 4
+    exact_energy: -15.85 
+
 Noise:
   prob_1q: 0.05     # single-qubit depolarizing noise
   prob_2q: 0.20     # two-qubit depolarizing noise

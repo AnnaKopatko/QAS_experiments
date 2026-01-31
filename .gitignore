@@ -18,3 +18,5 @@ classic_archs/
 
 mlruns/
 datasets/
+
+.aim/

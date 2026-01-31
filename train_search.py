@@ -50,12 +50,12 @@ def get_args():
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
-    parser.add_argument('--mol_name', type=str, default='LiH', choices=['H2', 'LiH'],
+    parser.add_argument('--mol_name', type=str, default='H2', choices=['H2', 'LiH', 'BeH2'],
                         help='Select molecule to simulate (H2 or LiH)')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
-    parser.add_argument('--log_experiment', action='store_true', default=True,
+    parser.add_argument('--log_experiment', action='store_true', default=False,
                         help='enable Aim experiment logging')
-    parser.add_argument('--noise', action='store_true', default=True, help='use noise model')
+    parser.add_argument('--noise', action='store_true', default=False, help='use noise model')
     parser.add_argument('--device', type=str, default='default', choices=['default', 'ibmq-sim', 'ibmq'],
                         help='which backend device to use')
     parser.add_argument('--aim_repo', type=str, default='.aim', help='Aim repository path')
@@ -126,8 +126,7 @@ def main():
                 "ea_gens": args.ea_gens,
                 "device": args.device,
                 "seed": args.seed,
-                "mol_name": mol_name,
-                "optimizer": "QNGOptimizer",
+                "optimizer": "Adam",
                 "lr": args.lr,
                 "qng_lam": args.qng_lam,
                 "qng_approx": args.qng_approx,
@@ -188,8 +187,10 @@ def main():
         return circuit(params)
 
     # Initialize QNG Optimizer
-    opt = qml.QNGOptimizer(stepsize=args.lr, lam=args.qng_lam, approx=args.qng_approx)
+    # Initialize standard Adam optimizer
+    opt = qml.AdamOptimizer(stepsize=args.lr)
     exact_value = mol_cfg["exact_energy"]
+
 
     # ======================================================
     # Warm-up training
@@ -197,26 +198,30 @@ def main():
     print("\n=== Warm-up Training ===")
     for epoch in range(args.epochs):
         subnet = np.random.randint(0, len(NAS_search_space), args.n_layers).tolist()
-        expert_idx = np.random.randint(args.n_experts) if epoch < args.warmup_epochs \
-                     else expert_evaluator(model, subnet, args.n_experts, cost)
+
+        if epoch < args.warmup_epochs:
+            expert_idx = np.random.randint(args.n_experts)
+        else:
+            expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
         
         model.params = model.get_params(subnet, expert_idx)
-        model.params = opt.step(circuit, model.params)
+
+        # ---- Adam update (standard) ----
+        model.params = opt.step(cost, model.params)
+
         model.set_params(model.params)
 
-        # Logging
+        # ---- Logging ----
+        energy = cost(model.params)
+        deviation = abs(energy - exact_value)
+
         if run:
-            energy = cost(model.params)
-            deviation = abs(energy - exact_value)
             safe_log_metric(run, "warmup_energy", energy, step=epoch, context={"stage": "warmup"})
-            
             if epoch % 50 == 0:
                 safe_log_metric(run, "warmup_deviation", deviation, step=epoch, context={"stage": "warmup"})
         
-        if True:
-            energy = cost(model.params)
-            deviation = abs(energy - exact_value)
-            print(f"Epoch {epoch}/{args.epochs}: Energy = {energy:.8f}, ΔE = {deviation:.8f}")
+        print(f"Epoch {epoch}/{args.epochs}: Energy = {energy:.8f}, ΔE = {deviation:.8f}")
+
 
     # ======================================================
     # Architecture search
@@ -299,40 +304,6 @@ def main():
             result[subnet_key] = (energy, int(expert_idx))
 
         print("✓ Evolution results converted to (energy, expert) tuples.")
-    
-        # sampler = EvolutionSampler(
-        #     pop_size=args.ea_pop_size,
-        #     n_gens=args.ea_gens,
-        #     n_layers=args.n_layers,
-        #     n_blocks=len(NAS_search_space)
-        # )
-
-        # expert_map = {}
-        
-        # def eval_func(subnet):
-        #     nonlocal search_iter
-        #     expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
-        #     model.params = model.get_params(subnet, expert_idx)
-        #     energy = cost(model.params)
-            
-        #     subnet_key = '-'.join(map(str, subnet))
-        #     expert_map[subnet_key] = int(expert_idx)
-
-        #     if run:
-        #         safe_log_metrics(run, {
-        #             "search_energy": energy,
-        #             "search_deviation": abs(energy - exact_value),
-        #             "search_expert_idx": expert_idx
-        #         }, step=search_iter, context={"stage": "search", "searcher": "evolution"})
-            
-        #     search_iter += 1
-        #     return float(energy)
-
-        # sampler.sample(eval_func)
-        
-        # for subnet_key, energy in sampler.subnet_eval_dict.items():
-        #     expert_idx = expert_map.get(subnet_key, 0)
-        #     result[subnet_key] = (float(energy), expert_idx)
 
     # ======================================================
     # Save and process results
@@ -432,6 +403,7 @@ def main():
             "energy_from_search": best_energy_entry['energy'],
             "deviation_from_search": best_energy_entry['deviation']
         }, context={"stage": "best_arch"})
+        
 
     # ======================================================
     # Fine-tune best architecture from scratch
@@ -470,9 +442,10 @@ def main():
             "initial_random_deviation": abs(initial_random_energy - exact_value)
         }, context={"stage": "finetune_init"})
 
-    # Train from scratch with QNGOptimizer
+
+    # Train from scratch with Adam optimizer
     fine_tune_epochs = args.finetune_epochs
-    fine_tune_opt = qml.QNGOptimizer(stepsize=args.lr, lam=args.qng_lam, approx=args.qng_approx)
+    fine_tune_opt = qml.AdamOptimizer(stepsize=args.lr)
 
     print(f"\nTraining for {fine_tune_epochs} epochs with QNGOptimizer...")
     fine_tune_energies = [initial_random_energy]
@@ -483,7 +456,9 @@ def main():
     patience_limit = 50
 
     for epoch in range(fine_tune_epochs):
-        fresh_model.params = fine_tune_opt.step(fixed_circuit, fresh_model.params)
+        # ---- Adam update (standard) ----
+        fresh_model.params = fine_tune_opt.step(fixed_cost, fresh_model.params)
+
         energy = fixed_cost(fresh_model.params)
         fine_tune_energies.append(energy)
         deviation = abs(energy - exact_value)
@@ -496,7 +471,7 @@ def main():
         else:
             patience_counter += 1
         
-        # Log metrics
+        # Logging
         if run:
             safe_log_metrics(run, {
                 "finetune_energy": energy,
@@ -504,11 +479,14 @@ def main():
                 "finetune_best_energy": best_finetune_energy
             }, step=epoch, context={"stage": "finetune"})
         
-        # Print progress
         if epoch % 20 == 0 or epoch < 5:
-            print(f"Epoch {epoch+1}/{fine_tune_epochs}: Energy = {energy:.8f}, "
-                  f"ΔE = {deviation:.8f}, Best = {best_finetune_energy:.8f}")
-        
+            print(
+                f"Epoch {epoch+1}/{fine_tune_epochs}: "
+                f"Energy = {energy:.8f}, "
+                f"ΔE = {deviation:.8f}, "
+                f"Best = {best_finetune_energy:.8f}"
+            )
+
 
 
     # Use best parameters
