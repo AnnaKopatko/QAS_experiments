@@ -124,6 +124,7 @@ class CircuitSearchModel():
         self.expert_idx = expert_idx
         params = []
         for j in range(self.n_layers):
+            #we get rid of cnot information
             r_idx = subnet[j] // len(CNOTs_space)
             ei, jj, ri = int(expert_idx), int(j), int(r_idx)
             params.append(self.params_space[ei, jj, ri:ri+1])
