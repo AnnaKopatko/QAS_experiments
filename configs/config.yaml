@@ -9,19 +9,19 @@ Molecules:
     charge: 0
     spin: 0
     active_orbitals: 2
-    exact_energy: -1.136189454088  # FCI reference (Hartree)
+    exact_energy: -1.136189454088
 
   LiH:
     symbols: ["Li", "H"]
     coordinates:
-      - [0.0, 0.0, 0.0]         # Li at origin
-      - [0.0, 0.0, 1.595]       # H at 1.595 Å (≈ equilibrium bond length)
+      - [0.0, 0.0, 0.0]
+      - [0.0, 0.0, 1.595]
     n_electrons: 2 
     basis: "sto-3g"
     charge: 0
     spin: 0
     active_orbitals: 4
-    exact_energy: -7.8825378195   # FCI reference (Hartree)
+    exact_energy: -7.8825378195
 
   BeH2:
     symbols: ["Be", "H", "H"]
@@ -40,3 +40,18 @@ Noise:
   prob_1q: 0.05     # single-qubit depolarizing noise
   prob_2q: 0.20     # two-qubit depolarizing noise
   apply_to_measurements: false
+
+SearchSpace:
+  # Valid rotation gates to use in the search space
+  # Available options: "RY", "RZ", "RX"
+  valid_Rs: ["RY", "RZ"]
+  
+  # Valid CNOT wire pairs for entanglement
+  # These define the connectivity pattern between qubits
+  valid_CNOTs:
+    - [0, 1]
+    - [1, 2]
+    - [2, 3]
+  
+  # how many repeats of the valid Rs for the search space 
+  num_repears: 4

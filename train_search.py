@@ -8,7 +8,11 @@ import pennylane as qml
 from pennylane import numpy as np
 from aim import Run, Image as AimImage
 
-from model import CircuitSearchModel, CircuitModel, NAS_search_space
+
+from models.circuit_model import CircuitModel
+from models.search_space import SearchSpace
+from models.circuit_search_model import CircuitSearchModel
+
 from evolution.evolution_sampler import EvolutionSampler
 from utils.molecule_utils import load_molecule_and_hf
 from utils.utils import parse_architecture_key, expert_evaluator
@@ -51,12 +55,12 @@ def get_args():
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
-    parser.add_argument('--mol_name', type=str, default='BeH2', choices=['H2', 'LiH', 'BeH2'],
+    parser.add_argument('--mol_name', type=str, default='LiH', choices=['H2', 'LiH', 'BeH2'],
                         help='Select molecule to simulate (H2 or LiH)')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--log_experiment', action='store_true', default=True,
                         help='enable Aim experiment logging')
-    parser.add_argument('--noise', action='store_true', default=True, help='use noise model')
+    parser.add_argument('--noise', action='store_true', default=False, help='use noise model')
     parser.add_argument('--device', type=str, default='default', choices=['default', 'ibmq-sim', 'ibmq'],
                         help='which backend device to use')
     parser.add_argument('--aim_repo', type=str, default='.aim', help='Aim repository path')
@@ -98,6 +102,8 @@ def main():
     mol_name = args.mol_name
     mol_cfg = cfg["Molecules"][mol_name]
     
+    search_space = SearchSpace(cfg)
+
     # ======================================================
     # Initialize Aim Run
     # ======================================================
@@ -178,7 +184,7 @@ def main():
     print("HF basis state:", basis_state)
     
     # ---- Initialize Model ----
-    model = CircuitSearchModel(dev, args.n_qubits, args.n_layers, args.n_experts, basis_state=basis_state)
+    model = CircuitSearchModel(dev, search_space, args.n_qubits, args.n_layers, args.n_experts, basis_state=basis_state)
 
     @qml.qnode(dev)
     def circuit(params):
@@ -199,7 +205,7 @@ def main():
     # ======================================================
     print("\n=== Warm-up Training ===")
     for epoch in range(args.epochs):
-        subnet = np.random.randint(0, len(NAS_search_space), args.n_layers).tolist()
+        subnet = np.random.randint(0, len(search_space), args.n_layers).tolist()
 
         if epoch < args.warmup_epochs:
             expert_idx = np.random.randint(args.n_experts)
@@ -234,7 +240,7 @@ def main():
 
     if args.searcher == 'random':
         for i in range(args.n_search):
-            subnet = np.random.randint(0, len(NAS_search_space), args.n_layers).tolist()
+            subnet = np.random.randint(0, len(search_space), args.n_layers).tolist()
             expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
             model.params = model.get_params(subnet, expert_idx)
             energy = cost(model.params)
@@ -244,8 +250,8 @@ def main():
 
             if run:
                 safe_log_metrics(run, {
-                    "search_energy": energy,
-                    "search_deviation": abs(energy - exact_value),
+                    "search_energy": float(energy),
+                    "search_deviation": float(abs(energy - exact_value)),
                     "search_expert_idx": expert_idx
                 }, step=search_iter, context={"stage": "search", "searcher": "random"})
                 
@@ -269,7 +275,7 @@ def main():
             pop_size=args.ea_pop_size,
             n_gens=args.ea_gens,
             n_layers=args.n_layers,
-            n_blocks=len(NAS_search_space)
+            n_blocks=len(search_space)
         )
 
         # Fitness function for evolution
@@ -279,12 +285,12 @@ def main():
             energy = cost(model.params)
             if run:
                 safe_log_metrics(run, {
-                        "evolution_energy": energy,
+                        "search_evolution_energy": float(energy),
                     }, step=search_iter, context={"stage": "search", "searcher": "evolution"})
                     
 
             # Evolution uses a score (higher is better)
-            score = np.abs(energy - exact_value)
+            score = -np.abs(energy - exact_value)
             return score
 
         # Run evolutionary search
@@ -300,7 +306,7 @@ def main():
         result = {}
         for subnet_key, score in raw_result.items():
             # Parse subnet from key (string like "1-3-2")
-            subnet = parse_architecture_key(subnet_key, len(NAS_search_space))
+            subnet = parse_architecture_key(subnet_key, len(search_space))
 
             # Recompute expert and true energy
             expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
@@ -337,7 +343,7 @@ def main():
     # ======================================================
     # Process candidate architectures
     # ======================================================
-    search_space_size = len(NAS_search_space)
+    search_space_size = len(search_space)
     evaluated_entries = []
 
     def safe_parse_subnet(raw_subnet):
@@ -423,6 +429,7 @@ def main():
 
     fresh_model = CircuitModel(
         dev=dev,
+        search_space=search_space,
         n_qubits=args.n_qubits,
         n_layers=args.n_layers,
         arch=best_arch_str,
