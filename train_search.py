@@ -290,7 +290,7 @@ def main():
                     
 
             # Evolution uses a score (higher is better)
-            score = -np.abs(energy - exact_value)
+            score = np.abs(energy - exact_value)
             return score
 
         # Run evolutionary search
