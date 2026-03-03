@@ -45,12 +45,12 @@ def safe_log_metrics(run, metrics, step=None, context=None):
 def get_args():
     parser = argparse.ArgumentParser("Quantum Architecture Search (QAS)")
     parser.add_argument('--epochs', type=int, default=400, help='training epochs')
-    parser.add_argument('--expr_tag', type=str, default="fix_ev_bug_pop_40", help='the tag to add to logging')
+    parser.add_argument('--expr_tag', type=str, default="no_bug_partil_circle", help='the tag to add to logging')
     parser.add_argument('--warmup_epochs', type=int, default=200, help='warm-up epochs')
     parser.add_argument('--n_layers', type=int, default=3, help='number of layers per subnet')
     parser.add_argument('--n_experts', type=int, default=5, help='number of experts')
     parser.add_argument('--n_search', type=int, default=500, help='number of earch iterations')
-    parser.add_argument('--ea_pop_size', type=int, default=40, help='population size (evolution)')
+    parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
     parser.add_argument('--ea_gens', type=int, default=20, help='number of generations (evolution)')
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)
@@ -58,9 +58,9 @@ def get_args():
     parser.add_argument('--mol_name', type=str, default='LiH', choices=['H2', 'LiH', 'BeH2'],
                         help='Select molecule to simulate (H2 or LiH)')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
-    parser.add_argument('--log_experiment', action='store_true', default=True,
+    parser.add_argument('--log_experiment', action='store_true', default=False,
                         help='enable Aim experiment logging')
-    parser.add_argument('--noise', action='store_true', default=False, help='use noise model')
+    parser.add_argument('--noise', action='store_true', default=True, help='use noise model')
     parser.add_argument('--device', type=str, default='default', choices=['default', 'ibmq-sim', 'ibmq'],
                         help='which backend device to use')
     parser.add_argument('--aim_repo', type=str, default='.aim', help='Aim repository path')
@@ -102,7 +102,6 @@ def main():
     mol_name = args.mol_name
     mol_cfg = cfg["Molecules"][mol_name]
     
-    search_space = SearchSpace(cfg)
 
     # ======================================================
     # Initialize Aim Run
@@ -124,6 +123,7 @@ def main():
             run['noise'] = args.noise
             run['mol_name'] = mol_name
             run['expr_tag'] = args.expr_tag
+            run['minus_in_evolution'] = False
             run['hparams'] = {
                 "epochs": args.epochs,
                 "warmup_epochs": args.warmup_epochs,
@@ -150,6 +150,8 @@ def main():
     # ---- Load molecule and Hartree-Fock state ----
     hamiltonian, qubits, hf_state = load_molecule_and_hf(mol_cfg)
     noise_cfg = cfg["Noise"]
+    
+    search_space = SearchSpace(cfg, qubits, run)
     
     # ---- Device setup ----
     if args.device in ['ibmq-sim', 'ibmq']:

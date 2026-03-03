@@ -49,9 +49,11 @@ SearchSpace:
   # Valid CNOT wire pairs for entanglement
   # These define the connectivity pattern between qubits
   valid_CNOTs:
-    - [0, 1]
-    - [1, 2]
-    - [2, 3]
+    - [0, 2]
+    - [2, 4]
+    - [4, 6]
+    - [6, 7]
+    - [7, 0]
   
   # how many repeats of the valid Rs for the search space 
-  num_repears: 4
+  num_repears: 2

@@ -25,20 +25,22 @@ class SearchSpace:
     
     Attributes:
         valid_Rs (list): Available single-qubit rotation gates (loaded from config)
-        valid_CNOTs (tuple): Valid CNOT wire pairs (loaded from config)
+        valid_CNOTs (tuple): Valid CNOT wire pairs (nearest-neighbor only)
         n_qubits (int): Number of qubits (determines Rs_space size)
         Rs_space (list): All possible combinations of rotation gates
         CNOTs_space (list): All possible CNOT connectivity patterns (including subsets)
         NAS_search_space (list): Complete search space as Cartesian product of Rs_space × CNOTs_space
     """
     
-    def __init__(self, config):
+    def __init__(self, config, n_qubits=None, run=None):
         """
         Initialize the search space by loading configuration and generating all 
         possible combinations of rotation gates and CNOT patterns.
         
         Args:
-            config: The configuration 
+            config: The configuration
+            n_qubits (int, optional): Number of qubits. If None, falls back to
+                SearchSpace.num_repeats from config for backward compatibility.
         """
         # Extract search space configuration
         search_cfg = config.get("SearchSpace", {})
@@ -52,19 +54,33 @@ class SearchSpace:
         }
         valid_Rs_names = search_cfg.get("valid_Rs", ["RY", "RZ"])
         self.valid_Rs = [gate_mapping[name] for name in valid_Rs_names]
+        num_repeats = search_cfg.get("num_repeats", 2)
         
-        # Define valid CNOT wire pairs from config
-        # Convert list of lists to tuple of lists for consistency
+        # Determine qubit count (prefer explicit argument from caller)
+        self.n_qubits = n_qubits 
+
+        # Define valid CNOT wire pairs as nearest-neighbor connections only
+        # Example for 5 qubits: (0,1), (1,2), (2,3), (3,4)
+        
+                
+        # # Define valid CNOT wire pairs from config
+        # # Convert list of lists to tuple of lists for consistency
         valid_CNOTs_config = search_cfg.get("valid_CNOTs", [[0, 1], [1, 2], [2, 3]])
         self.valid_CNOTs = tuple([pair for pair in valid_CNOTs_config])
     
             
-        num_repeats = search_cfg.get("num_repeats", 4)
+
+
+        # self.valid_CNOTs = tuple((i, i + 1) for i in range(self.n_qubits - 1))
+        
         
         # Build the rotation gate space
-        # Generate all possible combinations of num_repeats rotation gates (one per qubit)
+        # Generate all possible combinations of rotation gates (one per qubit)
         # Example: (RY, RY, RZ, RY) means RY on qubits 0,1,3 and RZ on qubit 2
         # Total combinations: len(valid_Rs)^n_qubits
+                # Define valid CNOT wire pairs from config
+        # Convert list of lists to tuple of lists for consistency
+            
         self.Rs_space = list(itertools.product(*[self.valid_Rs] * num_repeats))
         
         # Build the CNOT connectivity space
@@ -79,6 +95,19 @@ class SearchSpace:
         # Each element is a tuple (Rs_configuration, CNOTs_configuration)
         # Total size: len(Rs_space) × len(CNOTs_space)
         self.NAS_search_space = list(itertools.product(self.Rs_space, self.CNOTs_space))
+        
+        if run:
+            try:
+                run['search_space_info'] = {
+                    "n_qubits": self.n_qubits,
+                    "valid_Rs": valid_Rs_names,
+                    "valid_CNOTs": list(self.valid_CNOTs),
+                    "num_repeats": num_repeats,
+                    "nas_search_space_size": len(self.NAS_search_space)
+                }
+            except Exception as e:
+                print(f"⚠️ Failed to log search space info: {e}")
+                
     
     def __len__(self):
         """
@@ -101,5 +130,3 @@ class SearchSpace:
                    CNOTs is a list of wire pairs for CNOT gates
         """
         return self.NAS_search_space[idx]
-
-
