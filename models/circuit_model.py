@@ -14,82 +14,25 @@ Key Components:
 import pennylane as qml
 from pennylane import numpy as np
 
-# ======================================================
-# Regular Layer (works for any n_qubits)
-# ======================================================
-def layer(params, j, n_qubits):
+def qas_layer(params, j, arch_elem):
     """
-    Standard quantum circuit layer with fixed structure.
-    
-    This creates a basic ansatz layer consisting of:
-    1. RY rotation on each qubit (parameterized)
-    2. Linear chain of CNOT gates connecting adjacent qubits
-    
-    Architecture:
-        RY(θ₀) -- CNOT -- RY(θ₁) -- CNOT -- RY(θ₂) -- CNOT -- RY(θ₃)
-                   |                |                |
-                   ----------------+----------------+
-    
+    One NAS layer:
+        - exactly one rotation
+        - exactly one CNOT
+
     Args:
-        params (np.ndarray): Parameter array of shape (n_layers, n_qubits)
-        j (int): Current layer index
-        n_qubits (int): Number of qubits in the circuit
-        
-    Note:
-        This is used for baseline/regular circuits, NOT for NAS circuits.
+        params: shape (n_layers,)
+        j: layer index
+        arch_elem: element from NAS_search_space
+                   ((gate_class, wire), (control, target))
     """
-    # Apply parameterized RY rotation to each qubit
-    for i in range(n_qubits):
-        qml.RY(params[j, i], wires=i)
+    (gate_cls, wire), (control, target) = arch_elem
 
-    # Apply CNOT chain across all adjacent qubit pairs
-    # This creates entanglement: qubit i is control, qubit i+1 is target
-    for i in range(n_qubits - 1):
-        qml.CNOT(wires=[i, i + 1])
+    # Apply rotation
+    gate_cls(params[j], wires=wire)
 
-
-# ======================================================
-# QAS Layer (for NAS circuits)
-# ======================================================
-def qas_layer(params, j, n_qubits, Rs=None, CNOTs=None):
-    """
-    Quantum Architecture Search (QAS) layer with configurable structure.
-    
-    Unlike the standard layer(), this allows customization of:
-    1. Which rotation gates to use (RY, RZ, or mix)
-    2. Which qubits are entangled via CNOT gates
-    
-    This flexibility is essential for NAS, where different architectures
-    are tried during the search process.
-    
-    Args:
-        params (np.ndarray): Parameter array of shape (n_layers, n_qubits)
-        j (int): Current layer index
-        n_qubits (int): Number of qubits in the circuit
-        Rs (list of callables, optional): List of rotation gates to apply.
-            If fewer than n_qubits gates are provided, they will cycle.
-            Default: [RY, RY, RY, RY]
-        CNOTs (list of lists, optional): List of [control, target] wire pairs.
-            Example: [[0,1], [2,3]] creates CNOTs between qubits 0-1 and 2-3.
-            Default: Linear chain [[0,1], [1,2], ..., [n_qubits-2, n_qubits-1]]
-    """
-    # Default rotation gates: RY on all qubits
-    if Rs is None:
-        Rs = [qml.RY] * n_qubits
-        
-    # Default CNOT connectivity: linear chain
-    if CNOTs is None:
-        CNOTs = [[i, (i + 1) % n_qubits] for i in range(n_qubits - 1)]
-
-    # Apply rotation gates to each qubit
-    # If len(Rs) < n_qubits, cycle through the available gates
-    for i in range(n_qubits):
-        gate = Rs[i % len(Rs)]   # Modulo ensures we don't go out of bounds
-        gate(params[j, i], wires=i)
-
-    # Apply CNOT gates according to the specified connectivity
-    for conn in CNOTs:
-        qml.CNOT(wires=conn)
+    # Apply CNOT
+    qml.CNOT(wires=[control, target])
 
 
 
@@ -149,17 +92,19 @@ class CircuitModel:
             # Print architecture details for debugging/logging
             print("----NAS circuit----")
             for i, idx in enumerate(self.arch):
-                Rs, CNOTs = self.search_space.NAS_search_space[idx]
+                arch_elem = self.search_space.NAS_search_space[idx]
+                (gate_cls, wire), (control, target) = arch_elem
+
                 print(f"------Layer {i}------")
-                print(f"Rs: {Rs}")
-                print(f"CNOTs: {CNOTs}")
+                print(f"Rotation: {gate_cls.__name__} on qubit {wire}")
+                print(f"CNOT: control {control} -> target {target}")
         else:
             # Empty string indicates regular circuit (not NAS)
             self.arch = ""
 
         # Initialize parameters randomly in range [0, 2π]
         # Shape: (n_layers, n_qubits) - one parameter per gate per layer
-        self.params = np.random.uniform(0, 2 * np.pi, (n_layers, n_qubits))
+        self.params = np.random.uniform(0, 2 * np.pi, (n_layers,))
 
     def __call__(self, params=None, wires=None):
         """
@@ -211,14 +156,10 @@ class CircuitModel:
         # Initialize the quantum state
         qml.BasisState(np.array(self.basis_state), wires=wires)
 
-        # Build the circuit layer by layer
         for j in range(self.n_layers):
-            if self.arch is None or self.arch == "":
-                # Regular circuit: use standard layer
-                layer(params, j, self.n_qubits)
-            else:
-                # NAS circuit: use architecture from search space
-                # arch[j] is the index into NAS_search_space for this layer
-                idx = int(self.arch[j])
-                Rs, CNOTs = self.search_space.NAS_search_space[idx]  # Retrieve (rotation gates, CNOT pattern)
-                qas_layer(params, j, self.n_qubits, Rs, CNOTs)
+
+            idx = int(self.arch[j])
+
+            arch_elem = self.search_space.NAS_search_space[idx]
+
+            qas_layer(params, j, arch_elem)

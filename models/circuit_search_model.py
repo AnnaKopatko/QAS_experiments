@@ -97,10 +97,11 @@ class CircuitSearchModel():
         # - Each expert learns parameters for every possible rotation configuration
         # - CNOT patterns don't need parameters (they're just connectivity)
         # - This enables parameter sharing: similar architectures share rotation parameters
-        self.params_space = np.random.uniform(0, np.pi * 2, 
-                                             (n_experts, n_layers, len(self.search_space.Rs_space), n_qubits))
-        
-        # Current active parameters (set by get_params)
+        self.params_space = np.random.uniform(
+            0, 2*np.pi,
+            (n_experts, n_layers, len(self.search_space.Rs_space))
+        )   
+                # Current active parameters (set by get_params)
         self.params = None
         
         # Initial quantum state (e.g., Hartree-Fock for chemistry)
@@ -127,26 +128,23 @@ class CircuitSearchModel():
             np.ndarray: Parameters for this subnet/expert combination,
                 shape (n_layers, n_qubits)
         """
-        # Store current selection for later use in set_params
+
         self.subnet = subnet
         self.expert_idx = expert_idx
-        
-        params = []
-        for j in range(self.n_layers):
-            # Decode the rotation gate index from the subnet index
-            # NAS_search_space is organized as: Rs_space × CNOTs_space
-            # So dividing by CNOTs_space size gives us the Rs_space index
-            r_idx = subnet[j] // len(self.search_space.CNOTs_space)
-            
-            # Convert to int for indexing (avoid floating point issues)
-            ei, jj, ri = int(expert_idx), int(j), int(r_idx)
-            
-            # Extract parameters for this layer
-            # [ei, jj, ri:ri+1] gives shape (1, n_qubits)
-            params.append(self.params_space[ei, jj, ri:ri+1])
 
-        # Concatenate all layers: final shape (n_layers, n_qubits)
-        return np.concatenate(params, axis=0)
+        params = []
+
+        for j in range(self.n_layers):
+            idx = int(subnet[j])
+
+            # Decode rotation index
+            r_idx = idx // len(self.search_space.CNOTs_space)
+
+            params.append(
+                self.params_space[expert_idx, j, r_idx]
+            )
+
+        return np.array(params)
 
     def set_params(self, params):
         """
@@ -161,13 +159,12 @@ class CircuitSearchModel():
             params (np.ndarray): Updated parameters from optimizer,
                 shape (n_layers, n_qubits)
         """
+
         for j in range(self.n_layers):
-            # Decode the rotation gate index (same logic as get_params)
-            r_idx = self.subnet[j] // len(self.search_space.CNOTs_space)
-            
-            # Write updated parameters back to the parameter space
-            # Only update the specific rotation configuration that was used
-            self.params_space[self.expert_idx, j, r_idx:r_idx+1] = params[j, :]
+            idx = int(self.subnet[j])
+            r_idx = idx // len(self.search_space.CNOTs_space)
+
+            self.params_space[self.expert_idx, j, r_idx] = params[j]
 
     def __call__(self, params, wires):
         """
@@ -236,7 +233,5 @@ class CircuitSearchModel():
             # NAS_search_space[idx] = (Rs, CNOTs)
             # Rs: tuple of rotation gates (e.g., (RY, RZ, RY, RZ))
             # CNOTs: list of wire pairs (e.g., [[0,1], [2,3]])
-            Rs, CNOTs = self.search_space.NAS_search_space[idx]
-            
-            # Build this layer with specified gates and connectivity
-            qas_layer(params, j, n_qubits, Rs, CNOTs)
+            arch_elem = self.search_space.NAS_search_space[idx]
+            qas_layer(params, j, arch_elem)

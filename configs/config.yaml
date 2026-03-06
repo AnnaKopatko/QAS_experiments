@@ -44,7 +44,7 @@ Noise:
 SearchSpace:
   # Valid rotation gates to use in the search space
   # Available options: "RY", "RZ", "RX"
-  valid_Rs: ["RY", "RZ"]
+  valid_Rs: ["RY", "RZ", "RX"]
   
   # Valid CNOT wire pairs for entanglement
   # These define the connectivity pattern between qubits

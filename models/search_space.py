@@ -54,42 +54,19 @@ class SearchSpace:
         }
         valid_Rs_names = search_cfg.get("valid_Rs", ["RY", "RZ"])
         self.valid_Rs = [gate_mapping[name] for name in valid_Rs_names]
-        num_repeats = search_cfg.get("num_repeats", 2)
-        
-        # Determine qubit count (prefer explicit argument from caller)
-        self.n_qubits = n_qubits 
 
         # Define valid CNOT wire pairs as nearest-neighbor connections only
         # Example for 5 qubits: (0,1), (1,2), (2,3), (3,4)
-        
-                
-        # # Define valid CNOT wire pairs from config
-        # # Convert list of lists to tuple of lists for consistency
-        valid_CNOTs_config = search_cfg.get("valid_CNOTs", [[0, 1], [1, 2], [2, 3]])
-        self.valid_CNOTs = tuple([pair for pair in valid_CNOTs_config])
     
-            
-
-
-        # self.valid_CNOTs = tuple((i, i + 1) for i in range(self.n_qubits - 1))
-        
-        
-        # Build the rotation gate space
-        # Generate all possible combinations of rotation gates (one per qubit)
-        # Example: (RY, RY, RZ, RY) means RY on qubits 0,1,3 and RZ on qubit 2
-        # Total combinations: len(valid_Rs)^n_qubits
-                # Define valid CNOT wire pairs from config
-        # Convert list of lists to tuple of lists for consistency
-            
-        self.Rs_space = list(itertools.product(*[self.valid_Rs] * num_repeats))
+        self.n_qubits = n_qubits 
+        self.Rs_space = [(gate, wire) for gate in self.valid_Rs for wire in range(self.n_qubits)]
         
         # Build the CNOT connectivity space
         # Generate all possible subsets of CNOT connections (including empty set)
-        # For each CNOT pair, it's either included (x) or excluded (None)
-        # Example: [[0,1], [2,3]] means CNOTs between qubits 0-1 and 2-3, but not 1-2
-        # Total combinations: 2^len(valid_CNOTs)
-        self.CNOTs_space = [[y for y in CNOTs if y is not None] 
-                            for CNOTs in list(itertools.product(*([x, None] for x in self.valid_CNOTs)))]
+        self.CNOTs_space =  [
+            (i, (i + 1) % self.n_qubits)
+            for i in range(self.n_qubits)
+        ]
         
         # Build the complete NAS search space
         # Each element is a tuple (Rs_configuration, CNOTs_configuration)
@@ -101,8 +78,7 @@ class SearchSpace:
                 run['search_space_info'] = {
                     "n_qubits": self.n_qubits,
                     "valid_Rs": valid_Rs_names,
-                    "valid_CNOTs": list(self.valid_CNOTs),
-                    "num_repeats": num_repeats,
+                    "valid_CNOTs": list(self.CNOTs_space),
                     "nas_search_space_size": len(self.NAS_search_space)
                 }
             except Exception as e:
