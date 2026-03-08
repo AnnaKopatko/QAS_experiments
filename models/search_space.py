@@ -63,7 +63,7 @@ class SearchSpace:
         
         # Build the CNOT connectivity space
         # Generate all possible subsets of CNOT connections (including empty set)
-        self.CNOTs_space =  [
+        self.CNOTs_space = [None] + [
             (i, (i + 1) % self.n_qubits)
             for i in range(self.n_qubits)
         ]

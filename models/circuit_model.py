@@ -18,21 +18,24 @@ def qas_layer(params, j, arch_elem):
     """
     One NAS layer:
         - exactly one rotation
-        - exactly one CNOT
+        - optional CNOT
 
     Args:
         params: shape (n_layers,)
         j: layer index
         arch_elem: element from NAS_search_space
-                   ((gate_class, wire), (control, target))
+                   ((gate_class, wire), (control, target)) OR ((gate_class, wire), None)
     """
-    (gate_cls, wire), (control, target) = arch_elem
+
+    (gate_cls, wire), cnot = arch_elem
 
     # Apply rotation
     gate_cls(params[j], wires=wire)
 
-    # Apply CNOT
-    qml.CNOT(wires=[control, target])
+    # Apply CNOT if present
+    if cnot is not None:
+        control, target = cnot
+        qml.CNOT(wires=[control, target])
 
 
 
@@ -89,15 +92,6 @@ class CircuitModel:
             assert len(self.arch) == n_layers, \
                 f"Architecture length {len(self.arch)} != number of layers {n_layers}"
             
-            # Print architecture details for debugging/logging
-            print("----NAS circuit----")
-            for i, idx in enumerate(self.arch):
-                arch_elem = self.search_space.NAS_search_space[idx]
-                (gate_cls, wire), (control, target) = arch_elem
-
-                print(f"------Layer {i}------")
-                print(f"Rotation: {gate_cls.__name__} on qubit {wire}")
-                print(f"CNOT: control {control} -> target {target}")
         else:
             # Empty string indicates regular circuit (not NAS)
             self.arch = ""
