@@ -13,7 +13,8 @@ from models.circuit_model import CircuitModel
 from models.search_space import SearchSpace
 from models.circuit_search_model import CircuitSearchModel
 
-from evolution.evolution_sampler import EvolutionSampler
+# from evolution.evolution_sampler import EvolutionSampler
+from custom_evolution.custom_evoltuion import EvolutionSampler
 from utils.molecule_utils import load_molecule_and_hf
 from utils.utils import parse_architecture_key, expert_evaluator
 from utils.vis_and_logging import plot_energy_convergence, save_circuit_diagram, extract_and_save_specs
@@ -45,17 +46,17 @@ def safe_log_metrics(run, metrics, step=None, context=None):
 def get_args():
     parser = argparse.ArgumentParser("Quantum Architecture Search (QAS)")
     parser.add_argument('--epochs', type=int, default=400, help='training epochs')
-    parser.add_argument('--expr_tag', type=str, default="genome", help='the tag to add to logging')
+    parser.add_argument('--expr_tag', type=str, default="genome_custom_evolution_gen40", help='the tag to add to logging')
     parser.add_argument('--warmup_epochs', type=int, default=200, help='warm-up epochs')
     parser.add_argument('--n_layers', type=int, default=16, help='number of layers per subnet')
     parser.add_argument('--n_experts', type=int, default=5, help='number of experts')
     parser.add_argument('--n_search', type=int, default=500, help='number of earch iterations')
     parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
-    parser.add_argument('--ea_gens', type=int, default=20, help='number of generations (evolution)')
+    parser.add_argument('--ea_gens', type=int, default=40, help='number of generations (evolution)')
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
-    parser.add_argument('--mol_name', type=str, default='BeH2', choices=['H2', 'LiH', 'BeH2'],
+    parser.add_argument('--mol_name', type=str, default='LiH', choices=['H2', 'LiH', 'BeH2'],
                         help='Select molecule to simulate (H2 or LiH)')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--log_experiment', action='store_true', default=True,
@@ -277,7 +278,8 @@ def main():
             pop_size=args.ea_pop_size,
             n_gens=args.ea_gens,
             n_layers=args.n_layers,
-            n_blocks=len(search_space)
+            n_blocks=len(search_space),
+            aim_run=run
         )
 
         # Fitness function for evolution
