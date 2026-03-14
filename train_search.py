@@ -46,13 +46,15 @@ def safe_log_metrics(run, metrics, step=None, context=None):
 def get_args():
     parser = argparse.ArgumentParser("Quantum Architecture Search (QAS)")
     parser.add_argument('--epochs', type=int, default=400, help='training epochs')
-    parser.add_argument('--expr_tag', type=str, default="genome_custom_evolution_gen40", help='the tag to add to logging')
+    parser.add_argument('--expr_tag', type=str, default="genome_mutation_0.5", help='the tag to add to logging')
     parser.add_argument('--warmup_epochs', type=int, default=200, help='warm-up epochs')
-    parser.add_argument('--n_layers', type=int, default=16, help='number of layers per subnet')
+    parser.add_argument('--n_layers', type=int, default=8, help='number of layers per subnet')
     parser.add_argument('--n_experts', type=int, default=5, help='number of experts')
     parser.add_argument('--n_search', type=int, default=500, help='number of earch iterations')
     parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
-    parser.add_argument('--ea_gens', type=int, default=40, help='number of generations (evolution)')
+    parser.add_argument('--ea_gens', type=int, default=20, help='number of generations (evolution)')
+    parser.add_argument('--mutation_prob', type = float, default = 0.5, help = 'mutation probability for the evoltuion algorithm')
+    parser.add_argument('--use_controller', action='store_true', default=False, help='use architecture controller')
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
@@ -133,6 +135,9 @@ def main():
                 "n_search": args.n_search,
                 "ea_pop_size": args.ea_pop_size,
                 "ea_gens": args.ea_gens,
+                "mutation_prob": args.mutation_prob,
+                "use_controller": args.use_controller,
+                "searcher": args.searcher,         
                 "device": args.device,
                 "seed": args.seed,
                 "optimizer": "Adam",
@@ -279,7 +284,10 @@ def main():
             n_gens=args.ea_gens,
             n_layers=args.n_layers,
             n_blocks=len(search_space),
-            aim_run=run
+            aim_run=run,
+            search_space=search_space,
+            mutation_prob=args.mutation_prob,
+            use_controller=args.use_controller
         )
 
         # Fitness function for evolution
