@@ -97,10 +97,12 @@ class CircuitSearchModel():
         # - Each expert learns parameters for every possible rotation configuration
         # - CNOT patterns don't need parameters (they're just connectivity)
         # - This enables parameter sharing: similar architectures share rotation parameters
+        max_rot = max(len(r) for r in self.search_space.Rs_space)
+
         self.params_space = np.random.uniform(
             0, 2*np.pi,
-            (n_experts, n_layers, len(self.search_space.Rs_space))
-        )   
+            (n_experts, n_layers, len(self.search_space.Rs_space), max_rot)
+)
                 # Current active parameters (set by get_params)
         self.params = None
         

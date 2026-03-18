@@ -59,11 +59,27 @@ class SearchSpace:
         # Example for 5 qubits: (0,1), (1,2), (2,3), (3,4)
     
         self.n_qubits = n_qubits 
-        self.Rs_space = [(gate, wire) for gate in self.valid_Rs for wire in range(self.n_qubits)]
-        
+        import itertools
+
+        n_rot = search_cfg.get("n_rotations_per_layer", 1)
+
+        self.Rs_space = []
+
+        qubits = list(range(self.n_qubits))
+
+        # choose qubits without repetition
+        for qubit_combo in itertools.combinations(qubits, n_rot):
+
+            # choose gates (repetition allowed)
+            for gates in itertools.product(self.valid_Rs, repeat=n_rot):
+
+                layer = [(gate, wire) for gate, wire in zip(gates, qubit_combo)]
+
+                self.Rs_space.append(layer)
+                
         # Build the CNOT connectivity space
         # Generate all possible subsets of CNOT connections (including empty set)
-        self.CNOTs_space = [None] + [
+        self.CNOTs_space = [
             (i, (i + 1) % self.n_qubits)
             for i in range(self.n_qubits)
         ]

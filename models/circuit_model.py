@@ -17,20 +17,22 @@ from pennylane import numpy as np
 def qas_layer(params, j, arch_elem):
     """
     One NAS layer:
-        - exactly one rotation
+        - multiple rotations
         - optional CNOT
 
     Args:
-        params: shape (n_layers,)
+        params: shape (n_layers, n_rotations)
         j: layer index
         arch_elem: element from NAS_search_space
-                   ((gate_class, wire), (control, target)) OR ((gate_class, wire), None)
+                   ([(gate, wire), ...], (control,target)) OR
+                   ([(gate, wire), ...], None)
     """
 
-    (gate_cls, wire), cnot = arch_elem
+    Rs, cnot = arch_elem
 
-    # Apply rotation
-    gate_cls(params[j], wires=wire)
+    # Apply all rotations in this layer
+    for k, (gate_cls, wire) in enumerate(Rs):
+        gate_cls(params[j][k], wires=wire)
 
     # Apply CNOT if present
     if cnot is not None:
@@ -98,7 +100,12 @@ class CircuitModel:
 
         # Initialize parameters randomly in range [0, 2π]
         # Shape: (n_layers, n_qubits) - one parameter per gate per layer
-        self.params = np.random.uniform(0, 2 * np.pi, (n_layers,))
+        max_rot = max(len(r) for r in self.search_space.Rs_space)
+
+        self.params = np.random.uniform(
+            0, 2 * np.pi,
+            (n_layers, max_rot)
+        )
 
     def __call__(self, params=None, wires=None):
         """
