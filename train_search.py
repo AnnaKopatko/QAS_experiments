@@ -54,7 +54,8 @@ def get_args():
     parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
     parser.add_argument('--ea_gens', type=int, default=20, help='number of generations (evolution)')
     parser.add_argument('--mutation_prob', type = float, default = 0.25, help = 'mutation probability for the evoltuion algorithm')
-    parser.add_argument('--use_controller', action='store_true', default=False, help='use architecture controller')
+    parser.add_argument('--use_controller', default=False, help='use architecture controller')
+    parser.add_argument('--use_aging', default=False, action='store_true', help='use aging as in AmeubaNet')
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
@@ -144,7 +145,8 @@ def main():
                 "lr": args.lr,
                 "qng_lam": args.qng_lam,
                 "qng_approx": args.qng_approx,
-                "finetune_epochs": args.finetune_epochs
+                "finetune_epochs": args.finetune_epochs,
+                "aging": args.use_aging,
                 
             }
             
@@ -287,7 +289,8 @@ def main():
             aim_run=run,
             search_space=search_space,
             mutation_prob=args.mutation_prob,
-            use_controller=args.use_controller
+            use_controller=args.use_controller,
+            aging=args.use_aging
         )
 
         # Fitness function for evolution

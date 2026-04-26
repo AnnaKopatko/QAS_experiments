@@ -174,11 +174,21 @@ def survival_selection(
     population: np.ndarray,
     scores: np.ndarray,
     pop_size: int,
+    generation_added: np.ndarray | None = None,  # NEW
+    aging: bool = False,                          # NEW
 ) -> tuple:
-    random_keys = np.random.rand(len(scores))
-    sorted_indices = np.lexsort((random_keys, scores))
-    survivor_indices = sorted_indices[:pop_size]
-    return population[survivor_indices], scores[survivor_indices]
+    if aging and generation_added is not None:
+        # Remove oldest: sort by age (ascending = oldest first), keep youngest pop_size
+        oldest_first = np.argsort(generation_added)          # oldest at index 0
+        survivor_indices = oldest_first[len(population) - pop_size:]  # keep the youngest
+    else:
+        # Original: remove worst performers
+        random_keys = np.random.rand(len(scores))
+        sorted_indices = np.lexsort((random_keys, scores))
+        survivor_indices = sorted_indices[:pop_size]
+
+    return population[survivor_indices], scores[survivor_indices], \
+           generation_added[survivor_indices] if generation_added is not None else None
 
 
 # =============================================================================
@@ -206,9 +216,11 @@ class EvolutionSampler:
         aim_run=None,
         search_space=None,  
         use_controller = False,# ← NEW: pass your SearchSpace instance
-        mutation_prob = None
+        mutation_prob = None,
+        aging: bool = True
         
     ):
+        self.aging = aging
         self.pop_size  = pop_size
         self.n_gens    = n_gens
         self.n_layers  = n_layers
@@ -240,6 +252,10 @@ class EvolutionSampler:
         print(f"Initialized population: {self.pop_size} individuals, "
               f"{self.n_layers} layers, {self.n_blocks} blocks"
               + (" [CONSTRAINED]" if ctrl else ""))
+        
+        # After initializing population (Step 1):
+        generation_added = np.zeros(self.pop_size, dtype=int)  # all born at gen 0
+
 
         # STEP 2 — evaluate initial population
         scores = evaluate_population(population, eval_func, cache)
@@ -262,11 +278,20 @@ class EvolutionSampler:
 
             # STEP 7 — evaluate offspring
             offspring_scores = evaluate_population(offspring, eval_func, cache)
+            
+            #Inside the loop, after evaluating offspring (Step 7):
+            offspring_generation = np.full(len(offspring), gen, dtype=int)  # tag with current gen
 
-            # STEP 8 — combine + survival selection
-            combined_pop    = np.vstack([population, offspring])
-            combined_scores = np.concatenate([scores, offspring_scores])
-            population, scores = survival_selection(combined_pop, combined_scores, self.pop_size)
+            # Step 8 — combine:
+            combined_pop        = np.vstack([population, offspring])
+            combined_scores     = np.concatenate([scores, offspring_scores])
+            combined_generations = np.concatenate([generation_added, offspring_generation])  # NEW
+
+            population, scores, generation_added = survival_selection(
+                combined_pop, combined_scores, self.pop_size,
+                generation_added=combined_generations,
+                aging=self.aging,
+            )
 
             print(f"  Best score this gen: {scores[0]:.6f}")
 
