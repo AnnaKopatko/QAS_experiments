@@ -27,11 +27,19 @@ def parse_architecture_key(key, search_space_size):
 
 
 def expert_evaluator(model, subnet, n_experts, cost_fn):
-    """Choose the expert with the lowest energy for given subnet."""
+    """Choose the expert with the lowest energy for given subnet.
+
+    Returns
+    -------
+    best_idx : int
+    best_loss : float
+        Energy already evaluated for best_idx — callers can use this
+        directly instead of re-running the circuit.
+    """
     best_idx, best_loss = 0, float('inf')
     for i in range(n_experts):
         model.params = model.get_params(subnet, i)
         loss = cost_fn(model.params)
         if loss < best_loss:
             best_loss, best_idx = loss, i
-    return best_idx
+    return best_idx, best_loss

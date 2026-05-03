@@ -18,25 +18,22 @@ def qas_layer(params, j, arch_elem):
     """
     One NAS layer:
         - multiple rotations
-        - optional CNOT
+        - zero or more CNOTs
 
     Args:
         params: shape (n_layers, n_rotations)
         j: layer index
         arch_elem: element from NAS_search_space
-                   ([(gate, wire), ...], (control,target)) OR
-                   ([(gate, wire), ...], None)
+                   ([(gate, wire), ...], ((control, target), ...))
+                   The CNOT tuple may be empty (no entanglement).
     """
 
-    Rs, cnot = arch_elem
+    Rs, cnots = arch_elem
 
-    # Apply all rotations in this layer
     for k, (gate_cls, wire) in enumerate(Rs):
         gate_cls(params[j][k], wires=wire)
 
-    # Apply CNOT if present
-    if cnot is not None:
-        control, target = cnot
+    for control, target in cnots:
         qml.CNOT(wires=[control, target])
 
 

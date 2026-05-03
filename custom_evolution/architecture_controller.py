@@ -54,13 +54,12 @@ class ArchitectureController:
         self.search_space = search_space
         self.n_blocks = len(search_space)
 
-        # Pre-compute the CNOT wire pair for every block index.
-        # _cnot_of[i] is None  → block i has no CNOT
-        # _cnot_of[i] = (c, t) → block i places a CNOT on that pair
-        self._cnot_of: list[Optional[tuple]] = []
+        # Pre-compute the CNOT wire pairs for every block index.
+        # _cnot_of[i] is a frozenset of (ctrl, tgt) pairs (empty = no CNOT).
+        self._cnot_of: list[frozenset] = []
         for idx in range(self.n_blocks):
             _, cnot_cfg = search_space[idx]
-            self._cnot_of.append(cnot_cfg)  # None or (ctrl, tgt)
+            self._cnot_of.append(frozenset(cnot_cfg))
 
         self._valid_after = []
 
@@ -75,14 +74,11 @@ class ArchitectureController:
             sys.stdout.flush()
             # ------------------------
 
-            forbidden_cnot = self._cnot_of[idx]
+            forbidden_cnots = self._cnot_of[idx]
 
             valid = [
                 j for j in range(self.n_blocks)
-                if not (
-                    forbidden_cnot is not None
-                    and self._cnot_of[j] == forbidden_cnot
-                )
+                if not (forbidden_cnots and self._cnot_of[j] & forbidden_cnots)
             ]
 
             self._valid_after.append(valid)
@@ -93,8 +89,8 @@ class ArchitectureController:
     # Public query helpers
     # ------------------------------------------------------------------
 
-    def cnot_of(self, block_idx: int) -> Optional[tuple]:
-        """Return the CNOT wire pair for *block_idx*, or None."""
+    def cnot_of(self, block_idx: int) -> frozenset:
+        """Return the frozenset of CNOT wire pairs for *block_idx* (empty = no CNOT)."""
         return self._cnot_of[block_idx]
 
     def valid_next_blocks(self, prev_block_idx: int) -> list[int]:
@@ -129,7 +125,7 @@ class ArchitectureController:
         for i in range(len(arch) - 1):
             cnot_now  = self._cnot_of[int(arch[i])]
             cnot_next = self._cnot_of[int(arch[i + 1])]
-            if cnot_now is not None and cnot_now == cnot_next:
+            if cnot_now and cnot_now & cnot_next:
                 return False
         return True
 
@@ -316,7 +312,7 @@ class ArchitectureController:
         ]
         for idx in range(self.n_blocks):
             cnot = self._cnot_of[idx]
-            cnot_str = f"({cnot[0]},{cnot[1]})" if cnot is not None else "  None  "
+            cnot_str = ",".join(f"({c},{t})" for c, t in sorted(cnot)) if cnot else "  None  "
             n_valid = len(self._valid_after[idx])
             lines.append(f"  {idx:>5} | {cnot_str:^10} | {n_valid}")
         return "\n".join(lines)

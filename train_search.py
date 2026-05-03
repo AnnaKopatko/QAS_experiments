@@ -48,7 +48,7 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=400, help='training epochs')
     parser.add_argument('--expr_tag', type=str, default="two_rots_per_layer_RyRy", help='the tag to add to logging')
     parser.add_argument('--warmup_epochs', type=int, default=200, help='warm-up epochs')
-    parser.add_argument('--n_layers', type=int, default=8, help='number of layers per subnet')
+    parser.add_argument('--n_layers', type=int, default=4, help='number of layers per subnet')
     parser.add_argument('--n_experts', type=int, default=5, help='number of experts')
     parser.add_argument('--n_search', type=int, default=500, help='number of earch iterations')
     parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
@@ -59,7 +59,7 @@ def get_args():
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)
     parser.add_argument('--save', type=str, default='EXP', help='experiment name')
-    parser.add_argument('--mol_name', type=str, default='LiH', choices=['H2', 'LiH', 'BeH2'],
+    parser.add_argument('--mol_name', type=str, default='H2O', choices=['H2', 'LiH', 'BeH2', 'H2O'],
                         help='Select molecule to simulate (H2 or LiH)')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--log_experiment', action='store_true', default=True,
@@ -147,6 +147,7 @@ def main():
                 "qng_approx": args.qng_approx,
                 "finetune_epochs": args.finetune_epochs,
                 "aging": args.use_aging,
+                "thesis_run": True
                 
             }
             
@@ -220,17 +221,16 @@ def main():
         if epoch < args.warmup_epochs:
             expert_idx = np.random.randint(args.n_experts)
         else:
-            expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
-        
+            expert_idx, _ = expert_evaluator(model, subnet, args.n_experts, cost)
+
         model.params = model.get_params(subnet, expert_idx)
 
         # ---- Adam update (standard) ----
-        model.params = opt.step(cost, model.params)
+        model.params, energy = opt.step_and_cost(cost, model.params)   
 
         model.set_params(model.params)
 
         # ---- Logging ----
-        energy = cost(model.params)
         deviation = abs(energy - exact_value)
 
         if run:
@@ -251,9 +251,8 @@ def main():
     if args.searcher == 'random':
         for i in range(args.n_search):
             subnet = np.random.randint(0, len(search_space), args.n_layers).tolist()
-            expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
-            model.params = model.get_params(subnet, expert_idx)
-            energy = cost(model.params)
+            expert_idx, energy = expert_evaluator(model, subnet, args.n_experts, cost)
+            energy = float(energy)
             subnet_key = '-'.join(map(str, subnet))
             result[subnet_key] = (float(energy), int(expert_idx))
             print(f"{i+1}/{args.n_search}: subnet={subnet}, expert={expert_idx}, energy={energy:.6f}")
@@ -295,16 +294,12 @@ def main():
 
         # Fitness function for evolution
         def test_subnet_evolution(subnet):
-            expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
-            model.params = model.get_params(subnet, expert_idx)
-            energy = cost(model.params)
+            expert_idx, energy = expert_evaluator(model, subnet, args.n_experts, cost)
             if run:
                 safe_log_metrics(run, {
-                        "search_evolution_energy": float(energy),
-                    }, step=search_iter, context={"stage": "search", "searcher": "evolution"})
-                    
+                    "search_evolution_energy": float(energy),
+                }, step=search_iter, context={"stage": "search", "searcher": "evolution"})
 
-            # Evolution uses a score (higher is better)
             score = np.abs(energy - exact_value)
             return score
 
@@ -324,9 +319,8 @@ def main():
             subnet = parse_architecture_key(subnet_key, len(search_space))
 
             # Recompute expert and true energy
-            expert_idx = expert_evaluator(model, subnet, args.n_experts, cost)
-            model.params = model.get_params(subnet, expert_idx)
-            energy = float(cost(model.params))
+            expert_idx, energy = expert_evaluator(model, subnet, args.n_experts, cost)
+            energy = float(energy)
 
             # Store in correct tuple structure
             result[subnet_key] = (energy, int(expert_idx))

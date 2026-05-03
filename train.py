@@ -41,7 +41,7 @@ def get_args():
                         choices=['single_double', 'uccsd'],
                         help='Circuit architecture')
 
-    parser.add_argument('--mol_name', type=str, default='BeH2',
+    parser.add_argument('--mol_name', type=str, default='H2',
                         choices=['H2', 'LiH', 'BeH2'],
                         help='Molecule to simulate')
 

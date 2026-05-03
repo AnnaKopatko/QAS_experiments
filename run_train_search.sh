@@ -4,40 +4,39 @@ set -e
 
 echo "=== Batch 1: No Controller (3 runs each) ==="
 
-COMMON_ARGS="--epochs 400 \
-             --warmup_epochs 200 \
-             --n_experts 5 \
+COMMON_ARGS="--n_experts 5 \
              --n_search 500 \
-             --ea_pop_size 25 \
+             --ea_pop_size 50 \
              --ea_gens 20 \
              --searcher evolution \
              --finetune_epochs 150 \
              --device default \
-             --noise \
-             --log_experiment
-             --use_aging"
+             --log_experiment"
 
-MOLS=("H2" "LiH" "BeH2")
-LAYERS=(4 8 8)
+MOLS=("LiH")
+LAYERS=(4)
+EPOCHS=(400)
 
 # 3 repetitions
-for RUN in 1 2 3; do
+for RUN in 1 2; do
     echo "=== Repetition $RUN ==="
 
     for i in ${!MOLS[@]}; do
         MOL=${MOLS[$i]}
         N_LAYERS=${LAYERS[$i]}
+        N_EPOCHS=${EPOCHS[$i]}
 
-        echo "Running $MOL (layers=$N_LAYERS), run $RUN..."
+        echo "Running $MOL (layers=$N_LAYERS, epochs=$N_EPOCHS), run $RUN..."
+
+        NEXT_RUN=$((RUN + 1))
 
         python train_search.py \
             $COMMON_ARGS \
-            --mol_name $MOL \
-            --n_layers $N_LAYERS \
-            --seed $RUN \
-            --expr_tag two_gates_RyRz_aging_run_$RUN
+            --mol_name "$MOL" \
+            --n_layers "$N_LAYERS" \
+            --epochs "$N_EPOCHS" \
+            --seed "$RUN" \
+            --expr_tag "3rots2cnots_popsize50_${NEXT_RUN}"
 
     done
 done
-
-echo "=== Batch 1 Finished ==="

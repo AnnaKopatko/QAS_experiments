@@ -78,11 +78,11 @@ class SearchSpace:
                 self.Rs_space.append(layer)
                 
         # Build the CNOT connectivity space
-        # Generate all possible subsets of CNOT connections (including empty set)
-        self.CNOTs_space = [
-            (i, (i + 1) % self.n_qubits)
-            for i in range(self.n_qubits)
-        ]
+        # Each element is a tuple of n_cnots_per_layer wire pairs.
+        # n_cnots_per_layer=0 yields one option: () — no CNOTs.
+        n_cnots = search_cfg.get("n_cnots_per_layer", 1)
+        valid_cnot_pairs = [(i, (i + 1) % self.n_qubits) for i in range(self.n_qubits)]
+        self.CNOTs_space = list(itertools.combinations(valid_cnot_pairs, n_cnots))
         
         # Build the complete NAS search space
         # Each element is a tuple (Rs_configuration, CNOTs_configuration)
