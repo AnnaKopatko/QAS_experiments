@@ -6,11 +6,11 @@ import time
 
 import pennylane as qml
 from pennylane import numpy as np
-from aim import Run, Image as AimImage
+from aim import Run, Image as AimImage, Text as AimText
 
 
 from models.circuit_model import CircuitModel
-from models.search_space import SearchSpace
+from models.search_space import SearchSpace, BlockSearchSpace
 from models.circuit_search_model import CircuitSearchModel
 
 # from evolution.evolution_sampler import EvolutionSampler
@@ -64,10 +64,12 @@ def get_args():
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--log_experiment', action='store_true', default=True,
                         help='enable Aim experiment logging')
-    parser.add_argument('--noise', action='store_true', default=True, help='use noise model')
+    parser.add_argument('--noise', action='store_true', default=False, help='use noise model')
     parser.add_argument('--device', type=str, default='default', choices=['default', 'ibmq-sim', 'ibmq'],
                         help='which backend device to use')
     parser.add_argument('--aim_repo', type=str, default='.aim', help='Aim repository path')
+    parser.add_argument('--block_structure', action='store_true', default=False,
+                        help='use Du et al. block search space (all qubits get gates, all neighbor CNOTs independent)')
     parser.add_argument('--lr', type=float, default=0.2, help='optimizer learning rate (step size)')
     parser.add_argument('--qng_lam', type=float, default=0.001, help='QNG regularization parameter')
     parser.add_argument('--qng_approx', type=str, default='block-diag', 
@@ -147,6 +149,7 @@ def main():
                 "qng_approx": args.qng_approx,
                 "finetune_epochs": args.finetune_epochs,
                 "aging": args.use_aging,
+                "block_structure": args.block_structure,
                 "thesis_run": True
                 
             }
@@ -160,7 +163,11 @@ def main():
     hamiltonian, qubits, hf_state = load_molecule_and_hf(mol_cfg)
     noise_cfg = cfg["Noise"]
     
-    search_space = SearchSpace(cfg, qubits, run)
+    if args.block_structure:
+        search_space = BlockSearchSpace(cfg, qubits, run)
+        print(f"Using block search space: {len(search_space.Rs_space)} Rs configs × {len(search_space.CNOTs_space)} CNOT configs = {len(search_space)} total")
+    else:
+        search_space = SearchSpace(cfg, qubits, run)
     
     # ---- Device setup ----
     if args.device in ['ibmq-sim', 'ibmq']:
@@ -266,7 +273,7 @@ def main():
                 
                 try:
                     run.track(
-                        f"Iter {i+1}: subnet={subnet}, expert={expert_idx}, energy={energy:.6f}",
+                        AimText(f"Iter {i+1}: subnet={subnet}, expert={expert_idx}, energy={energy:.6f}"),
                         name="search_progress",
                         step=search_iter,
                         context={"stage": "search"}
@@ -339,7 +346,7 @@ def main():
     if run:
         try:
             with open(os.path.join(args.save, 'nas_result_sorted.txt'), 'r') as f:
-                run.track(f.read(), name="nas_result_sorted", context={"type": "artifact"})
+                run.track(AimText(f.read()), name="nas_result_sorted", context={"type": "artifact"})
         except Exception as e:
             print(f"⚠️ Failed to log artifact: {e}")
 
@@ -547,7 +554,29 @@ def main():
     np.save(os.path.join(args.save, 'best_finetuned_params.npy'), best_finetune_params)
     print(f"\n✓ Saved best fine-tuned parameters to: {args.save}/best_finetuned_params.npy")
 
-    model.params = best_finetune_params
+    # ======================================================
+    # Decode and save best architecture layer by layer
+    # ======================================================
+    arch_lines = [f"Best architecture: {best_arch_str}", f"Molecule: {mol_name}", ""]
+    for layer_num, layer_idx in enumerate(best_subnet):
+        rs_config, cnots_config = search_space[layer_idx]
+        rs_str = ", ".join(f"{gate.__name__}(wire={wire})" for gate, wire in rs_config)
+        cnots_str = ", ".join(f"CNOT({ctrl}->{tgt})" for ctrl, tgt in cnots_config) if cnots_config else "none"
+        arch_lines.append(f"Layer {layer_num} (idx={layer_idx}):")
+        arch_lines.append(f"  Rotations: {rs_str}")
+        arch_lines.append(f"  CNOTs:     {cnots_str}")
+
+    arch_text = "\n".join(arch_lines)
+    arch_decode_path = os.path.join(args.save, 'best_architecture_decoded.txt')
+    with open(arch_decode_path, 'w') as f:
+        f.write(arch_text + "\n")
+    print(f"\n=== Decoded Best Architecture ===\n{arch_text}")
+
+    if run:
+        try:
+            run.track(AimText(arch_text), name="best_architecture_decoded", context={"type": "artifact"})
+        except Exception as e:
+            print(f"⚠️ Failed to log decoded architecture to Aim: {e}")
 
     # ======================================================
     # Visualization & Aim logging
@@ -555,12 +584,12 @@ def main():
     try:
         energy_plot_path = plot_energy_convergence(fine_tune_energies, exact_value, args)
         circuit_path = save_circuit_diagram(
-            circuit,
-            model.params,
+            fixed_circuit,
+            fresh_model.params,
             os.path.join(args.save, "final_circuit.png"),
             title=f"Final Optimized Circuit ({args.mol_name})"
         )
-        num_wires, num_gates, depth, specs_path = extract_and_save_specs(circuit, model.params, args.save)
+        num_wires, num_gates, depth, specs_path = extract_and_save_specs(fixed_circuit, fresh_model.params, args.save)
 
         if run:
             try:
@@ -580,7 +609,7 @@ def main():
                 
                 if os.path.exists(specs_path):
                     with open(specs_path, 'r') as f:
-                        run.track(f.read(), name="circuit_specs", context={"type": "artifact"})
+                        run.track(AimText(f.read()), name="circuit_specs", context={"type": "artifact"})
                         
             except Exception as e:
                 print(f"⚠️ Failed to log visualizations to Aim: {e}")

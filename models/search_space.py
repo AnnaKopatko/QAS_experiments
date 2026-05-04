@@ -95,7 +95,11 @@ class SearchSpace:
                     "n_qubits": self.n_qubits,
                     "valid_Rs": valid_Rs_names,
                     "valid_CNOTs": list(self.CNOTs_space),
-                    "nas_search_space_size": len(self.NAS_search_space)
+                    "nas_search_space_size": len(self.NAS_search_space),
+                    "rs_space_size": len(self.Rs_space),
+                    "cnots_space_size": len(self.CNOTs_space),
+                    "n_rotations_per_layer": n_rot,
+                    "n_cnots_per_layer": n_cnots,
                 }
             except Exception as e:
                 print(f"⚠️ Failed to log search space info: {e}")
@@ -113,12 +117,75 @@ class SearchSpace:
     def __getitem__(self, idx):
         """
         Access a specific architecture configuration by index.
-        
+
         Args:
             idx (int): Index of the architecture in the search space
-            
+
         Returns:
-            tuple: (Rs, CNOTs) where Rs is a tuple of rotation gates and 
+            tuple: (Rs, CNOTs) where Rs is a tuple of rotation gates and
                    CNOTs is a list of wire pairs for CNOT gates
         """
+        return self.NAS_search_space[idx]
+
+
+class BlockSearchSpace:
+    """
+    Block search space from Du et al. 2022.
+
+    Each layer:
+    - ALL N qubits receive one of G rotation gates → G^N rotation configs
+    - Each of the N-1 nearest-neighbor pairs is independently on/off → 2^(N-1) CNOT configs
+
+    Total per-layer options: G^N × 2^(N-1)
+
+    For N=4: 2^4 × 2^3 = 128
+    For N=6: 2^6 × 2^5 = 2,048
+    For N=8: 2^8 × 2^7 = 32,768
+    """
+
+    def __init__(self, config, n_qubits, run=None):
+        search_cfg = config.get("SearchSpace", {})
+
+        gate_mapping = {"RY": qml.RY, "RZ": qml.RZ, "RX": qml.RX}
+        valid_Rs_names = search_cfg.get("valid_Rs", ["RY", "RZ"])
+        self.valid_Rs = [gate_mapping[name] for name in valid_Rs_names]
+        self.n_qubits = n_qubits
+
+        n_rot = search_cfg.get("n_rotations_per_layer", 1)
+        n_cnots = search_cfg.get("n_cnots_per_layer", 1)
+
+        # Rs_space: G^N combinations — every qubit gets one gate
+        self.Rs_space = []
+        for gates in itertools.product(self.valid_Rs, repeat=n_qubits):
+            layer = [(gate, wire) for wire, gate in enumerate(gates)]
+            self.Rs_space.append(layer)
+
+        # CNOTs_space: all 2^(N-1) subsets of the N-1 nearest-neighbor pairs
+        neighbor_pairs = [(i, i + 1) for i in range(n_qubits - 1)]
+        self.CNOTs_space = []
+        for r in range(len(neighbor_pairs) + 1):
+            for combo in itertools.combinations(neighbor_pairs, r):
+                self.CNOTs_space.append(combo)
+
+        self.NAS_search_space = list(itertools.product(self.Rs_space, self.CNOTs_space))
+
+        if run:
+            try:
+                run['search_space_info'] = {
+                    "type": "block",
+                    "n_qubits": n_qubits,
+                    "valid_Rs": valid_Rs_names,
+                    "rs_space_size": len(self.Rs_space),
+                    "cnots_space_size": len(self.CNOTs_space),
+                    "nas_search_space_size": len(self.NAS_search_space),
+                    "n_rotations_per_layer": n_rot,
+                    "n_cnots_per_layer": n_cnots,
+                }
+            except Exception as e:
+                print(f"⚠️ Failed to log search space info: {e}")
+
+    def __len__(self):
+        return len(self.NAS_search_space)
+
+    def __getitem__(self, idx):
         return self.NAS_search_space[idx]
