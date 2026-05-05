@@ -88,7 +88,14 @@ class SearchSpace:
         # Each element is a tuple (Rs_configuration, CNOTs_configuration)
         # Total size: len(Rs_space) × len(CNOTs_space)
         self.NAS_search_space = list(itertools.product(self.Rs_space, self.CNOTs_space))
-        
+
+        # Storage for architectures created on-the-fly during evolution (e.g. CNOT dropout).
+        # Populated only during the search phase; never touched during warmup.
+        # Maps new_idx -> (Rs, CNOTs, r_idx) where r_idx is inherited from the parent.
+        self._dynamic_extensions: dict = {}
+        self._dynamic_key_to_idx: dict = {}
+        self._next_dynamic_idx: int = len(self.NAS_search_space)
+
         if run:
             try:
                 run['search_space_info'] = {
@@ -126,6 +133,41 @@ class SearchSpace:
                    CNOTs is a list of wire pairs for CNOT gates
         """
         return self.NAS_search_space[idx]
+
+    # ------------------------------------------------------------------
+    # Dynamic extension helpers (used by CNOT dropout during evolution)
+    # ------------------------------------------------------------------
+
+    def register_cnot_dropout_arch(self, Rs, CNOTs_reduced, parent_r_idx: int) -> int:
+        """Register a CNOT-dropped architecture and return its index.
+
+        If an identical (Rs, CNOTs_reduced) pair was already registered the
+        existing index is returned, so the dict never accumulates duplicates.
+        """
+        key = (
+            tuple((g.__name__, w) for g, w in Rs),
+            tuple(CNOTs_reduced),
+        )
+        if key in self._dynamic_key_to_idx:
+            return self._dynamic_key_to_idx[key]
+        new_idx = self._next_dynamic_idx
+        self._dynamic_extensions[new_idx] = (list(Rs), tuple(CNOTs_reduced), parent_r_idx)
+        self._dynamic_key_to_idx[key] = new_idx
+        self._next_dynamic_idx += 1
+        return new_idx
+
+    def get_arch_elem(self, idx: int):
+        """Return (Rs, CNOTs) for any index — static or dynamic."""
+        if idx < len(self.NAS_search_space):
+            return self.NAS_search_space[idx]
+        entry = self._dynamic_extensions[idx]
+        return (entry[0], entry[1])
+
+    def get_r_idx(self, idx: int) -> int:
+        """Return the rotation-parameter slot index for any architecture index."""
+        if idx < len(self.NAS_search_space):
+            return idx // len(self.CNOTs_space)
+        return self._dynamic_extensions[idx][2]
 
 
 class BlockSearchSpace:

@@ -135,6 +135,39 @@ def polynomial_mutation(
 
 
 # =============================================================================
+# Step 5b: CNOT Dropout Mutation
+# =============================================================================
+
+def cnot_dropout_mutation(
+    offspring: np.ndarray,
+    search_space,
+    dropout_prob: float,
+) -> np.ndarray:
+    """For each layer, with probability dropout_prob, remove one random CNOT.
+
+    The dropped architecture is registered in search_space._dynamic_extensions
+    so it can be evaluated and fine-tuned like any other architecture.
+    Rotation parameters are inherited from the parent's r_idx (no new param slots).
+    """
+    mutated = offspring.copy()
+    n_individuals, n_layers = mutated.shape
+    for i in range(n_individuals):
+        for j in range(n_layers):
+            if np.random.rand() >= dropout_prob:
+                continue
+            idx = int(mutated[i, j])
+            Rs, CNOTs = search_space.get_arch_elem(idx)
+            if len(CNOTs) == 0:
+                continue  # already no CNOTs, nothing to drop
+            drop_k = np.random.randint(len(CNOTs))
+            CNOTs_reduced = tuple(c for k, c in enumerate(CNOTs) if k != drop_k)
+            parent_r_idx = search_space.get_r_idx(idx)
+            new_idx = search_space.register_cnot_dropout_arch(Rs, CNOTs_reduced, parent_r_idx)
+            mutated[i, j] = new_idx
+    return mutated
+
+
+# =============================================================================
 # Step 6: Duplicate Elimination  (unchanged)
 # =============================================================================
 
@@ -214,11 +247,11 @@ class EvolutionSampler:
         n_layers: int = 3,
         n_blocks: int = 12,
         aim_run=None,
-        search_space=None,  
-        use_controller = False,# ← NEW: pass your SearchSpace instance
-        mutation_prob = None,
-        aging: bool = True
-        
+        search_space=None,
+        use_controller=False,
+        mutation_prob=None,
+        aging: bool = True,
+        cnot_dropout_prob: float = 0.0,
     ):
         self.aging = aging
         self.pop_size  = pop_size
@@ -227,6 +260,8 @@ class EvolutionSampler:
         self.n_blocks  = n_blocks
         self.aim_run   = aim_run
         self.mutation_prob = mutation_prob
+        self.cnot_dropout_prob = cnot_dropout_prob
+        self.search_space_obj = search_space  # kept for CNOT dropout
 
         if search_space is not None and use_controller:
                 self.controller = ArchitectureController(search_space)
@@ -272,6 +307,10 @@ class EvolutionSampler:
 
             # STEP 5 — mutation (constraint-aware if controller present)
             offspring = polynomial_mutation(offspring, self.n_blocks, controller=ctrl, mutation_prob=self.mutation_prob)
+
+            # STEP 5b — CNOT dropout (creates dynamic arch variants; disabled when prob=0)
+            if self.cnot_dropout_prob > 0 and self.search_space_obj is not None:
+                offspring = cnot_dropout_mutation(offspring, self.search_space_obj, self.cnot_dropout_prob)
 
             # STEP 6 — duplicate elimination (uses constrained sampling for fill)
             offspring = eliminate_duplicates(offspring, population, self.n_blocks, controller=ctrl)

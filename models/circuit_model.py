@@ -14,7 +14,7 @@ Key Components:
 import pennylane as qml
 from pennylane import numpy as np
 
-def qas_layer(params, j, arch_elem):
+def qas_layer(params, j, arch_elem, sandwich=False):
     """
     One NAS layer:
         - multiple rotations
@@ -26,15 +26,26 @@ def qas_layer(params, j, arch_elem):
         arch_elem: element from NAS_search_space
                    ([(gate, wire), ...], ((control, target), ...))
                    The CNOT tuple may be empty (no entanglement).
+        sandwich: if True, split rotations around CNOTs:
+                  first-half Rs → CNOTs → second-half Rs.
+                  Adds expressivity without changing the search space.
     """
 
     Rs, cnots = arch_elem
 
-    for k, (gate_cls, wire) in enumerate(Rs):
-        gate_cls(params[j][k], wires=wire)
-
-    for control, target in cnots:
-        qml.CNOT(wires=[control, target])
+    if not sandwich or not cnots:
+        for k, (gate_cls, wire) in enumerate(Rs):
+            gate_cls(params[j][k], wires=wire)
+        for control, target in cnots:
+            qml.CNOT(wires=[control, target])
+    else:
+        mid = len(Rs) // 2
+        for k, (gate_cls, wire) in enumerate(Rs[:mid]):
+            gate_cls(params[j][k], wires=wire)
+        for control, target in cnots:
+            qml.CNOT(wires=[control, target])
+        for k, (gate_cls, wire) in enumerate(Rs[mid:]):
+            gate_cls(params[j][mid + k], wires=wire)
 
 
 
@@ -63,7 +74,7 @@ class CircuitModel:
         params (np.ndarray): Trainable circuit parameters, shape (n_layers, n_qubits)
     """
     
-    def __init__(self, dev, search_space, n_qubits=3, n_layers=3, arch="", basis_state=None):
+    def __init__(self, dev, search_space, n_qubits=3, n_layers=3, arch="", basis_state=None, sandwich=False):
         """
         Initialize the circuit model.
         
@@ -80,7 +91,7 @@ class CircuitModel:
         self.n_layers = n_layers
         self.basis_state = basis_state
         self.search_space = search_space
-
+        self.sandwich = sandwich
 
         # Parse and validate architecture if NAS mode is used
         if arch != "":
@@ -157,7 +168,5 @@ class CircuitModel:
         for j in range(self.n_layers):
 
             idx = int(self.arch[j])
-
-            arch_elem = self.search_space.NAS_search_space[idx]
-
-            qas_layer(params, j, arch_elem)
+            arch_elem = self.search_space.get_arch_elem(idx)
+            qas_layer(params, j, arch_elem, sandwich=self.sandwich)

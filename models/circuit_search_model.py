@@ -66,7 +66,7 @@ class CircuitSearchModel():
         expert_idx (int): Currently active expert (set by get_params)
     """
     
-    def __init__(self, dev, search_space, n_qubits=3, n_layers=3, n_experts=5, basis_state=None):
+    def __init__(self, dev, search_space, n_qubits=3, n_layers=3, n_experts=5, basis_state=None, sandwich=False):
         """
         Initialize the circuit search model with multiple experts.
         
@@ -87,6 +87,7 @@ class CircuitSearchModel():
         self.n_layers = n_layers
         self.n_experts = n_experts
         self.search_space = search_space
+        self.sandwich = sandwich
         
         # Initialize parameter space for all experts
         # Shape: (n_experts, n_layers, len(Rs_space), n_qubits)
@@ -138,13 +139,8 @@ class CircuitSearchModel():
 
         for j in range(self.n_layers):
             idx = int(subnet[j])
-
-            # Decode rotation index
-            r_idx = idx // len(self.search_space.CNOTs_space)
-
-            params.append(
-                self.params_space[expert_idx, j, r_idx]
-            )
+            r_idx = self.search_space.get_r_idx(idx)
+            params.append(self.params_space[expert_idx, j, r_idx])
 
         return np.array(params)
 
@@ -164,8 +160,7 @@ class CircuitSearchModel():
 
         for j in range(self.n_layers):
             idx = int(self.subnet[j])
-            r_idx = idx // len(self.search_space.CNOTs_space)
-
+            r_idx = self.search_space.get_r_idx(idx)
             self.params_space[self.expert_idx, j, r_idx] = params[j]
 
     def __call__(self, params, wires):
@@ -231,9 +226,5 @@ class CircuitSearchModel():
             # Get architecture specification for this layer
             idx = int(arch[j])
             
-            # Retrieve rotation gates and CNOT pattern from search space
-            # NAS_search_space[idx] = (Rs, CNOTs)
-            # Rs: tuple of rotation gates (e.g., (RY, RZ, RY, RZ))
-            # CNOTs: list of wire pairs (e.g., [[0,1], [2,3]])
-            arch_elem = self.search_space.NAS_search_space[idx]
-            qas_layer(params, j, arch_elem)
+            arch_elem = self.search_space.get_arch_elem(idx)
+            qas_layer(params, j, arch_elem, sandwich=self.sandwich)

@@ -53,7 +53,7 @@ def get_args():
     parser.add_argument('--n_search', type=int, default=500, help='number of earch iterations')
     parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
     parser.add_argument('--ea_gens', type=int, default=20, help='number of generations (evolution)')
-    parser.add_argument('--mutation_prob', type = float, default = 0.25, help = 'mutation probability for the evoltuion algorithm')
+    parser.add_argument('--mutation_prob', type = float, default = 0.125, help = 'mutation probability for the evoltuion algorithm')
     parser.add_argument('--use_controller', default=False, help='use architecture controller')
     parser.add_argument('--use_aging', default=False, action='store_true', help='use aging as in AmeubaNet')
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
@@ -64,12 +64,16 @@ def get_args():
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--log_experiment', action='store_true', default=True,
                         help='enable Aim experiment logging')
-    parser.add_argument('--noise', action='store_true', default=False, help='use noise model')
+    parser.add_argument('--noise', action='store_true', default=True, help='use noise model')
     parser.add_argument('--device', type=str, default='default', choices=['default', 'ibmq-sim', 'ibmq'],
                         help='which backend device to use')
     parser.add_argument('--aim_repo', type=str, default='.aim', help='Aim repository path')
+    parser.add_argument('--sandwich_layers', action='store_true', default=False,
+                        help='split rotations around CNOTs (first-half Rs → CNOTs → second-half Rs) for more expressivity')
     parser.add_argument('--block_structure', action='store_true', default=False,
                         help='use Du et al. block search space (all qubits get gates, all neighbor CNOTs independent)')
+    parser.add_argument('--cnot_dropout_prob', type=float, default=0.125,
+                        help='per-layer probability of dropping one CNOT during mutation (0 = disabled)')
     parser.add_argument('--lr', type=float, default=0.2, help='optimizer learning rate (step size)')
     parser.add_argument('--qng_lam', type=float, default=0.001, help='QNG regularization parameter')
     parser.add_argument('--qng_approx', type=str, default='block-diag', 
@@ -150,7 +154,9 @@ def main():
                 "finetune_epochs": args.finetune_epochs,
                 "aging": args.use_aging,
                 "block_structure": args.block_structure,
-                "thesis_run": True
+                "sandwich_layers": args.sandwich_layers,
+                "thesis_run": True,
+                "thesis_run_new": True
                 
             }
             
@@ -202,7 +208,7 @@ def main():
     print("HF basis state:", basis_state)
     
     # ---- Initialize Model ----
-    model = CircuitSearchModel(dev, search_space, args.n_qubits, args.n_layers, args.n_experts, basis_state=basis_state)
+    model = CircuitSearchModel(dev, search_space, args.n_qubits, args.n_layers, args.n_experts, basis_state=basis_state, sandwich=args.sandwich_layers)
 
     @qml.qnode(dev)
     def circuit(params):
@@ -296,7 +302,8 @@ def main():
             search_space=search_space,
             mutation_prob=args.mutation_prob,
             use_controller=args.use_controller,
-            aging=args.use_aging
+            aging=args.use_aging,
+            cnot_dropout_prob=args.cnot_dropout_prob,
         )
 
         # Fitness function for evolution
@@ -449,7 +456,8 @@ def main():
         n_qubits=args.n_qubits,
         n_layers=args.n_layers,
         arch=best_arch_str,
-        basis_state=basis_state
+        basis_state=basis_state,
+        sandwich=args.sandwich_layers
     )
 
     @qml.qnode(dev)
@@ -559,12 +567,20 @@ def main():
     # ======================================================
     arch_lines = [f"Best architecture: {best_arch_str}", f"Molecule: {mol_name}", ""]
     for layer_num, layer_idx in enumerate(best_subnet):
-        rs_config, cnots_config = search_space[layer_idx]
-        rs_str = ", ".join(f"{gate.__name__}(wire={wire})" for gate, wire in rs_config)
+        rs_config, cnots_config = search_space.get_arch_elem(layer_idx)
         cnots_str = ", ".join(f"CNOT({ctrl}->{tgt})" for ctrl, tgt in cnots_config) if cnots_config else "none"
         arch_lines.append(f"Layer {layer_num} (idx={layer_idx}):")
-        arch_lines.append(f"  Rotations: {rs_str}")
-        arch_lines.append(f"  CNOTs:     {cnots_str}")
+        if args.sandwich_layers and cnots_config:
+            mid = len(rs_config) // 2
+            rs_before = ", ".join(f"{gate.__name__}(wire={wire})" for gate, wire in rs_config[:mid])
+            rs_after  = ", ".join(f"{gate.__name__}(wire={wire})" for gate, wire in rs_config[mid:])
+            arch_lines.append(f"  Rotations (before): {rs_before}")
+            arch_lines.append(f"  CNOTs:              {cnots_str}")
+            arch_lines.append(f"  Rotations (after):  {rs_after}")
+        else:
+            rs_str = ", ".join(f"{gate.__name__}(wire={wire})" for gate, wire in rs_config)
+            arch_lines.append(f"  Rotations: {rs_str}")
+            arch_lines.append(f"  CNOTs:     {cnots_str}")
 
     arch_text = "\n".join(arch_lines)
     arch_decode_path = os.path.join(args.save, 'best_architecture_decoded.txt')
