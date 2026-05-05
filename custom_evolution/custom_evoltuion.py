@@ -157,8 +157,8 @@ def cnot_dropout_mutation(
                 continue
             idx = int(mutated[i, j])
             Rs, CNOTs = search_space.get_arch_elem(idx)
-            if len(CNOTs) == 0:
-                continue  # already no CNOTs, nothing to drop
+            if len(CNOTs) <= 1:
+                continue  # need at least 2 CNOTs to drop one
             drop_k = np.random.randint(len(CNOTs))
             CNOTs_reduced = tuple(c for k, c in enumerate(CNOTs) if k != drop_k)
             parent_r_idx = search_space.get_r_idx(idx)
