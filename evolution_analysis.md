@@ -147,7 +147,36 @@ python train_search.py \
 
 ---
 
-## 7. Key Formulas
+## 7. Hardware Acceleration Notes
+
+### GPU (lightning.gpu / qiskit-aer-gpu)
+
+For **non-noisy runs** (`--device default`), the PennyLane device can be swapped:
+```python
+# train_search.py line 204 / train.py line 156
+dev = qml.device("lightning.qubit", wires=qubits)  # fast C++ CPU
+dev = qml.device("lightning.gpu", wires=qubits)    # NVIDIA CUDA (requires pennylane-lightning[gpu])
+```
+
+For **noisy runs** (`--noise`), the code uses `qiskit.aer`. The GPU equivalent is:
+```bash
+pip install qiskit-aer-gpu
+```
+No code change needed — it replaces `qiskit-aer` automatically.
+
+### Why GPU won't help at current molecule sizes
+
+Your qubit counts are small (H2=4, LiH=6, BeH2=8). GPU acceleration for statevector/density matrix simulation only pays off above ~20 qubits. Below that, the overhead of launching CUDA kernels per circuit evaluation costs more than it saves — especially in the evolutionary search, which runs hundreds of short evaluations (`n_search=500`).
+
+### Practical speedup options for current scale
+
+1. **Parallelize circuit evaluations across CPU cores** — each candidate in the population is independent and can be evaluated in parallel using `multiprocessing` or `concurrent.futures`.
+2. **Reduce `n_search` / `ea_pop_size`** during experimentation runs.
+3. GPU becomes worthwhile if scaling to molecules with 20+ qubits.
+
+---
+
+## 8. Key Formulas
 
 ```python
 import math

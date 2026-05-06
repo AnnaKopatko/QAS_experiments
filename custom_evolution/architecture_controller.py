@@ -91,7 +91,7 @@ class ArchitectureController:
 
     def cnot_of(self, block_idx: int) -> frozenset:
         """Return the frozenset of CNOT wire pairs for *block_idx* (empty = no CNOT)."""
-        return self._cnot_of[block_idx]
+        return self._get_cnot(block_idx)
 
     def valid_next_blocks(self, prev_block_idx: int) -> list[int]:
         """
@@ -107,7 +107,27 @@ class ArchitectureController:
         list[int]
             Non-empty list of valid block indices for the next layer.
         """
-        return self._valid_after[prev_block_idx]
+        return self._get_valid_after(prev_block_idx)
+
+    # ------------------------------------------------------------------
+    # Private helpers — handle both static and dynamic block indices
+    # ------------------------------------------------------------------
+
+    def _get_cnot(self, block_idx: int) -> frozenset:
+        """Return CNOT frozenset for any index, static or dynamic."""
+        if block_idx < self.n_blocks:
+            return self._cnot_of[block_idx]
+        _, cnots, _ = self.search_space._dynamic_extensions[block_idx]
+        return frozenset(cnots)
+
+    def _get_valid_after(self, block_idx: int) -> list[int]:
+        """Return valid static follower indices for any index, static or dynamic."""
+        if block_idx < self.n_blocks:
+            return self._valid_after[block_idx]
+        forbidden = self._get_cnot(block_idx)
+        if not forbidden:
+            return list(range(self.n_blocks))
+        return [j for j in range(self.n_blocks) if not (self._cnot_of[j] & forbidden)]
 
     def is_valid(self, arch: np.ndarray) -> bool:
         """
@@ -123,8 +143,8 @@ class ArchitectureController:
         bool
         """
         for i in range(len(arch) - 1):
-            cnot_now  = self._cnot_of[int(arch[i])]
-            cnot_next = self._cnot_of[int(arch[i + 1])]
+            cnot_now  = self._get_cnot(int(arch[i]))
+            cnot_next = self._get_cnot(int(arch[i + 1]))
             if cnot_now and cnot_now & cnot_next:
                 return False
         return True
@@ -183,10 +203,10 @@ class ArchitectureController:
         """
         arch = arch.copy().astype(int)
         for i in range(1, len(arch)):
-            valid = self._valid_after[int(arch[i - 1])]
-            if arch[i] not in valid:
-                # Preserve as much of the original index as possible by
-                # taking arch[i] modulo the number of valid choices.
+            forbidden = self._get_cnot(int(arch[i - 1]))
+            cnot_i    = self._get_cnot(int(arch[i]))
+            if forbidden and forbidden & cnot_i:
+                valid   = self._get_valid_after(int(arch[i - 1]))
                 arch[i] = valid[int(arch[i]) % len(valid)]
         return arch
 
@@ -246,8 +266,10 @@ class ArchitectureController:
                         mutated[i, j] = np.random.randint(0, self.n_blocks)
                     else:
                         # Layer j: must be a valid follower of layer j-1
-                        valid = self._valid_after[int(mutated[i, j - 1])]
+                        valid = self._get_valid_after(int(mutated[i, j - 1]))
                         mutated[i, j] = valid[np.random.randint(len(valid))]
+            # A mutated gene at position j may invalidate an unmutated gene at j+1.
+            mutated[i] = self.repair(mutated[i])
 
         return mutated
 

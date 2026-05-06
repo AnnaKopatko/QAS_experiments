@@ -2,23 +2,22 @@
 
 set -e
 
-echo "=== Batch 1: No Controller (3 runs each) ==="
-
 COMMON_ARGS="--n_experts 5 \
              --n_search 500 \
-             --ea_pop_size 50 \
-             --ea_gens 20 \
+             --ea_pop_size 100 \
+             --ea_gens 40 \
              --searcher evolution \
              --finetune_epochs 150 \
              --device default \
-             --log_experiment"
+             --log_experiment
+             --warmup_epochs 400"
 
-MOLS=("LiH")
-LAYERS=(3)
-EPOCHS=(400)
+MOLS=("H2O")
+LAYERS=(4)
+EPOCHS=(600)
 
 # 3 repetitions
-for RUN in 1 2; do
+for RUN in 1 2 3; do
     echo "=== Repetition $RUN ==="
 
     for i in ${!MOLS[@]}; do
@@ -28,7 +27,7 @@ for RUN in 1 2; do
 
         echo "Running $MOL (layers=$N_LAYERS, epochs=$N_EPOCHS), run $RUN..."
 
-        NEXT_RUN=$((RUN + 1))
+        NEXT_RUN=$((RUN))
 
         python train_search.py \
             $COMMON_ARGS \
@@ -36,8 +35,9 @@ for RUN in 1 2; do
             --n_layers "$N_LAYERS" \
             --epochs "$N_EPOCHS" \
             --seed "$RUN" \
-            --expr_tag "block_structure_popsize50_${NEXT_RUN}"
-            --block_structure \
+            --expr_tag "block_dropout_RC_safe_controller_${NEXT_RUN}" \
+            --block_structure
+            
 
     done
 done

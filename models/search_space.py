@@ -230,6 +230,10 @@ class BlockSearchSpace:
 
         self.NAS_search_space = list(itertools.product(self.Rs_space, self.CNOTs_space))
 
+        self._dynamic_extensions: dict = {}
+        self._dynamic_key_to_idx: dict = {}
+        self._next_dynamic_idx: int = len(self.NAS_search_space)
+
         if run:
             try:
                 run['search_space_info'] = {
@@ -250,3 +254,40 @@ class BlockSearchSpace:
 
     def __getitem__(self, idx):
         return self.NAS_search_space[idx]
+
+    def register_cnot_dropout_arch(self, Rs, CNOTs_reduced, parent_r_idx: int) -> int:
+        key = (
+            tuple((g.__name__, w) for g, w in Rs),
+            tuple(CNOTs_reduced),
+        )
+        if key in self._dynamic_key_to_idx:
+            return self._dynamic_key_to_idx[key]
+        new_idx = self._next_dynamic_idx
+        self._dynamic_extensions[new_idx] = (list(Rs), tuple(CNOTs_reduced), parent_r_idx)
+        self._dynamic_key_to_idx[key] = new_idx
+        self._next_dynamic_idx += 1
+        return new_idx
+
+    def register_r_dropout_arch(self, Rs_reduced, CNOTs, parent_r_idx: int) -> int:
+        key = (
+            tuple((g.__name__, w) for g, w in Rs_reduced),
+            tuple(CNOTs),
+        )
+        if key in self._dynamic_key_to_idx:
+            return self._dynamic_key_to_idx[key]
+        new_idx = self._next_dynamic_idx
+        self._dynamic_extensions[new_idx] = (list(Rs_reduced), tuple(CNOTs), parent_r_idx)
+        self._dynamic_key_to_idx[key] = new_idx
+        self._next_dynamic_idx += 1
+        return new_idx
+
+    def get_arch_elem(self, idx: int):
+        if idx < len(self.NAS_search_space):
+            return self.NAS_search_space[idx]
+        entry = self._dynamic_extensions[idx]
+        return (entry[0], entry[1])
+
+    def get_r_idx(self, idx: int) -> int:
+        if idx < len(self.NAS_search_space):
+            return idx // len(self.CNOTs_space)
+        return self._dynamic_extensions[idx][2]

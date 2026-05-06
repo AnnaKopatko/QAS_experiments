@@ -54,7 +54,9 @@ def get_args():
     parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
     parser.add_argument('--ea_gens', type=int, default=20, help='number of generations (evolution)')
     parser.add_argument('--mutation_prob', type = float, default = 0.125, help = 'mutation probability for the evoltuion algorithm')
-    parser.add_argument('--use_controller', default=False, help='use architecture controller')
+    parser.add_argument('--use_controller', default=True,
+                        type=lambda x: str(x).lower() not in ('false', '0', 'no'),
+                        help='use architecture controller (pass False to disable)')
     parser.add_argument('--use_aging', default=False, action='store_true', help='use aging as in AmeubaNet')
     parser.add_argument('--searcher', type=str, default='evolution', choices=['random', 'evolution'])
     parser.add_argument('--finetune_epochs', type=int, default=150)

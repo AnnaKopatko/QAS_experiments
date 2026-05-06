@@ -299,10 +299,10 @@ class EvolutionSampler:
         self.search_space_obj = search_space  # kept for dropout mutations
 
         if search_space is not None and use_controller:
-                self.controller = ArchitectureController(search_space)
-                print(self.controller.constraint_summary())
+            self.controller = ArchitectureController(search_space)
+            print(self.controller.constraint_summary())
         else:
-                self.controller = None
+            self.controller = None
 
         self.subnet_eval_dict: dict = {}
         self.subnet_topk: list = []
@@ -371,7 +371,7 @@ class EvolutionSampler:
                 aging=self.aging,
             )
 
-            print(f"  Best score this gen: {scores[0]:.6f}")
+            print(f"  Best score this gen: {scores.min():.6f}")
 
             evolution_end  = time.perf_counter()
             evolution_time = evolution_end - evolution_start

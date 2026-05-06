@@ -34,7 +34,7 @@ for RUN in 1 2 3; do
             --n_layers "$N_LAYERS" \
             --epochs "$N_EPOCHS" \
             --seed "$RUN" \
-            --expr_tag "2cnot3rot_dropout_CR_safe_${NEXT_RUN}"
+            --expr_tag "2cnot3rot_dropout_safe_controller_${NEXT_RUN}"
 
     done
 done
