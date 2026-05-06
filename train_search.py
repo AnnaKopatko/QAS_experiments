@@ -74,6 +74,8 @@ def get_args():
                         help='use Du et al. block search space (all qubits get gates, all neighbor CNOTs independent)')
     parser.add_argument('--cnot_dropout_prob', type=float, default=0.125,
                         help='per-layer probability of dropping one CNOT during mutation (0 = disabled)')
+    parser.add_argument('--r_dropout_prob', type=float, default=0.125,
+                        help='per-layer probability of dropping one R gate during mutation (0 = disabled)')
     parser.add_argument('--lr', type=float, default=0.2, help='optimizer learning rate (step size)')
     parser.add_argument('--qng_lam', type=float, default=0.001, help='QNG regularization parameter')
     parser.add_argument('--qng_approx', type=str, default='block-diag', 
@@ -304,6 +306,7 @@ def main():
             use_controller=args.use_controller,
             aging=args.use_aging,
             cnot_dropout_prob=args.cnot_dropout_prob,
+            r_dropout_prob=args.r_dropout_prob,
         )
 
         # Fitness function for evolution

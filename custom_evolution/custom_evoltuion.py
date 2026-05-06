@@ -168,6 +168,39 @@ def cnot_dropout_mutation(
 
 
 # =============================================================================
+# Step 5c: R-Gate Dropout Mutation
+# =============================================================================
+
+def r_dropout_mutation(
+    offspring: np.ndarray,
+    search_space,
+    dropout_prob: float,
+) -> np.ndarray:
+    """For each layer, with probability dropout_prob, remove one random R gate.
+
+    Requires at least 2 R gates in the layer so the layer isn't left empty.
+    The dropped variant is registered in search_space._dynamic_extensions
+    reusing the parent's r_idx as a warm-start parameter slot.
+    """
+    mutated = offspring.copy()
+    n_individuals, n_layers = mutated.shape
+    for i in range(n_individuals):
+        for j in range(n_layers):
+            if np.random.rand() >= dropout_prob:
+                continue
+            idx = int(mutated[i, j])
+            Rs, CNOTs = search_space.get_arch_elem(idx)
+            if len(Rs) <= 1:
+                continue  # need at least 2 R gates to drop one
+            drop_k = np.random.randint(len(Rs))
+            Rs_reduced = [r for k, r in enumerate(Rs) if k != drop_k]
+            parent_r_idx = search_space.get_r_idx(idx)
+            new_idx = search_space.register_r_dropout_arch(Rs_reduced, CNOTs, parent_r_idx)
+            mutated[i, j] = new_idx
+    return mutated
+
+
+# =============================================================================
 # Step 6: Duplicate Elimination  (unchanged)
 # =============================================================================
 
@@ -252,6 +285,7 @@ class EvolutionSampler:
         mutation_prob=None,
         aging: bool = True,
         cnot_dropout_prob: float = 0.0,
+        r_dropout_prob: float = 0.0,
     ):
         self.aging = aging
         self.pop_size  = pop_size
@@ -261,7 +295,8 @@ class EvolutionSampler:
         self.aim_run   = aim_run
         self.mutation_prob = mutation_prob
         self.cnot_dropout_prob = cnot_dropout_prob
-        self.search_space_obj = search_space  # kept for CNOT dropout
+        self.r_dropout_prob = r_dropout_prob
+        self.search_space_obj = search_space  # kept for dropout mutations
 
         if search_space is not None and use_controller:
                 self.controller = ArchitectureController(search_space)
@@ -311,6 +346,10 @@ class EvolutionSampler:
             # STEP 5b — CNOT dropout (creates dynamic arch variants; disabled when prob=0)
             if self.cnot_dropout_prob > 0 and self.search_space_obj is not None:
                 offspring = cnot_dropout_mutation(offspring, self.search_space_obj, self.cnot_dropout_prob)
+
+            # STEP 5c — R-gate dropout (disabled when prob=0)
+            if self.r_dropout_prob > 0 and self.search_space_obj is not None:
+                offspring = r_dropout_mutation(offspring, self.search_space_obj, self.r_dropout_prob)
 
             # STEP 6 — duplicate elimination (uses constrained sampling for fill)
             offspring = eliminate_duplicates(offspring, population, self.n_blocks, controller=ctrl)
