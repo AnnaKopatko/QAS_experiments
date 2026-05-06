@@ -156,6 +156,25 @@ class SearchSpace:
         self._next_dynamic_idx += 1
         return new_idx
 
+    def register_r_dropout_arch(self, Rs_reduced, CNOTs, parent_r_idx: int) -> int:
+        """Register an R-gate-dropped architecture and return its index.
+
+        The reduced Rs list is stored as a dynamic extension reusing the
+        parent's r_idx so that existing rotation parameters serve as a warm
+        start (same principle as CNOT dropout).  Deduplicates by key.
+        """
+        key = (
+            tuple((g.__name__, w) for g, w in Rs_reduced),
+            tuple(CNOTs),
+        )
+        if key in self._dynamic_key_to_idx:
+            return self._dynamic_key_to_idx[key]
+        new_idx = self._next_dynamic_idx
+        self._dynamic_extensions[new_idx] = (list(Rs_reduced), tuple(CNOTs), parent_r_idx)
+        self._dynamic_key_to_idx[key] = new_idx
+        self._next_dynamic_idx += 1
+        return new_idx
+
     def get_arch_elem(self, idx: int):
         """Return (Rs, CNOTs) for any index — static or dynamic."""
         if idx < len(self.NAS_search_space):
