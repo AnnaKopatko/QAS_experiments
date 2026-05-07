@@ -203,7 +203,14 @@ def main():
             noise_model.add_all_qubit_quantum_error(error_1, ['u1', 'u2', 'u3'])
             noise_model.add_all_qubit_quantum_error(error_2, ['cx'])
             print(noise_model)
-            dev = qml.device('qiskit.aer', wires=qubits, noise_model=noise_model)
+            try:
+                dev = qml.device('qiskit.aer', wires=qubits, noise_model=noise_model,
+                                  backend='aer_simulator_density_matrix_gpu')
+                print("✅ Using GPU-accelerated density matrix simulation")
+            except Exception as e:
+                print(f"⚠️ GPU unavailable ({e}), falling back to CPU")
+                dev = qml.device('qiskit.aer', wires=qubits, noise_model=noise_model,
+                                  backend='aer_simulator_density_matrix')
         else:
             dev = qml.device("default.qubit", wires=qubits)
 

@@ -20,3 +20,5 @@ mlruns/
 datasets/
 
 .aim/
+*.txt
+*.svg

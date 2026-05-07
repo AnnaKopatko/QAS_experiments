@@ -44,6 +44,8 @@ def get_args():
     parser.add_argument('--mol_name', type=str, default='H2',
                         choices=['H2', 'LiH', 'BeH2'],
                         help='Molecule to simulate')
+    parser.add_argument('--expr_tag', type=str, default='classic_vqe',
+                        help='tag added to Aim run name for experiment grouping')
 
     args = parser.parse_args()
 
@@ -90,7 +92,7 @@ def main():
     if args.log_experiment:
         print("Logging to Aim...")
         noise_id = "noise" if args.noise else "no_noise"
-        run_name = f"classic_{args.architecture}_{args.mol_name}_{noise_id}"
+        run_name = f"classic_{args.architecture}_{args.mol_name}_{args.expr_tag}_{noise_id}"
         try:
             run = Run(
                 repo=args.aim_repo,
@@ -100,6 +102,7 @@ def main():
             run['mol_name'] = args.mol_name
             run['noise'] = args.noise
             run['architecture'] = args.architecture
+            run['expr_tag'] = args.expr_tag
             run["train_params"] = {
                 "epochs": args.epochs,
                 "optimizer": "Adam",
@@ -151,7 +154,14 @@ def main():
             noise_model.add_all_qubit_quantum_error(error_1, ['u1', 'u2', 'u3'])
             noise_model.add_all_qubit_quantum_error(error_2, ['cx'])
 
-            dev = qml.device('qiskit.aer', wires=n_qubits, noise_model=noise_model)
+            try:
+                dev = qml.device('qiskit.aer', wires=n_qubits, noise_model=noise_model,
+                                  backend='aer_simulator_density_matrix_gpu')
+                print("✅ Using GPU-accelerated density matrix simulation")
+            except Exception as e:
+                print(f"⚠️ GPU unavailable ({e}), falling back to CPU")
+                dev = qml.device('qiskit.aer', wires=n_qubits, noise_model=noise_model,
+                                  backend='aer_simulator_density_matrix')
         else:
             dev = qml.device("default.qubit", wires=n_qubits)
 
@@ -309,37 +319,55 @@ def main():
             decomposed_circuit, param, args.save
         )
 
+        # Save circuit as ASCII text
+        circuit_text = qml.draw(decomposed_circuit)(param)
+        circuit_text_path = os.path.join(args.save, "circuit_text.txt")
+        with open(circuit_text_path, "w") as f:
+            f.write(circuit_text)
+        print(f"Saved circuit text to {circuit_text_path}")
+
         # Log artifacts to Aim with proper types
         if run is not None:
             try:
                 # Log images
                 if os.path.exists(energy_plot_path):
-                    run.track(AimImage(energy_plot_path), name="energy_convergence", 
+                    run.track(AimImage(energy_plot_path), name="energy_convergence",
                              context={"type": "visualization"})
-                
+
                 if os.path.exists(highlevel_path):
-                    run.track(AimImage(highlevel_path), name="circuit_highlevel", 
+                    run.track(AimImage(highlevel_path), name="circuit_highlevel",
                              context={"type": "visualization"})
-                
+
                 if os.path.exists(decomposed_path):
-                    run.track(AimImage(decomposed_path), name="circuit_decomposed", 
+                    run.track(AimImage(decomposed_path), name="circuit_decomposed",
                              context={"type": "visualization"})
-                
-                # Log circuit specs as text
+
+                # Log circuit specs (JSON) as text artifact
                 if os.path.exists(specs_path):
                     with open(specs_path, "r") as f:
                         specs_content = f.read()
-                    run.track(AimText(specs_content), name="circuit_specs_txt", 
+                    run.track(AimText(specs_content), name="circuit_specs",
                              context={"type": "artifact"})
-                
+
+                # Log circuit ASCII text
+                if os.path.exists(circuit_text_path):
+                    run.track(AimText(circuit_text), name="circuit_text",
+                             context={"type": "artifact"})
+
                 # ---- Log circuit complexity as single-value metrics ----
                 run.track(int(num_wires), name="num_wires")
                 run.track(int(num_gates), name="num_gates")
                 run.track(int(depth), name="circuit_depth")
 
-                
+                # ---- Log per-gate-type and per-gate-size metrics ----
+                gate_info = json.loads(specs_content)
+                for gate_name, count in gate_info.get("gate_types", {}).items():
+                    run.track(int(count), name=f"gate_{gate_name}")
+                for size, count in gate_info.get("gate_sizes", {}).items():
+                    run.track(int(count), name=f"gate_size_{size}q")
+
                 print("✅ Successfully logged all artifacts to Aim")
-                
+
             except Exception as e:
                 print(f"⚠️ Failed to log artifacts to Aim: {e}")
 
