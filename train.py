@@ -32,7 +32,7 @@ def get_args():
                         choices=['default', 'ibmq-sim', 'ibmq'],
                         help='backend device')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
-    parser.add_argument('--noise', default=True,
+    parser.add_argument('--noise', default=False,
                         help='use noise model')
     parser.add_argument('--log_experiment', action='store_true', default=True,
                         help='enable Aim logging')

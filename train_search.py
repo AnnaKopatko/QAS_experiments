@@ -54,7 +54,7 @@ def get_args():
     parser.add_argument('--ea_pop_size', type=int, default=25, help='population size (evolution)')
     parser.add_argument('--ea_gens', type=int, default=20, help='number of generations (evolution)')
     parser.add_argument('--mutation_prob', type = float, default = 0.125, help = 'mutation probability for the evoltuion algorithm')
-    parser.add_argument('--use_controller', default=True,
+    parser.add_argument('--use_controller', default=False,
                         type=lambda x: str(x).lower() not in ('false', '0', 'no'),
                         help='use architecture controller (pass False to disable)')
     parser.add_argument('--use_aging', default=False, action='store_true', help='use aging as in AmeubaNet')
@@ -64,7 +64,7 @@ def get_args():
     parser.add_argument('--mol_name', type=str, default='H2O', choices=['H2', 'LiH', 'BeH2', 'H2O'],
                         help='Select molecule to simulate (H2 or LiH)')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
-    parser.add_argument('--log_experiment', action='store_true', default=True,
+    parser.add_argument('--log_experiment', action='store_true', default=False,
                         help='enable Aim experiment logging')
     parser.add_argument('--noise', action='store_true', default=True, help='use noise model')
     parser.add_argument('--device', type=str, default='default', choices=['default', 'ibmq-sim', 'ibmq'],
@@ -74,9 +74,9 @@ def get_args():
                         help='split rotations around CNOTs (first-half Rs → CNOTs → second-half Rs) for more expressivity')
     parser.add_argument('--block_structure', action='store_true', default=False,
                         help='use Du et al. block search space (all qubits get gates, all neighbor CNOTs independent)')
-    parser.add_argument('--cnot_dropout_prob', type=float, default=0.125,
+    parser.add_argument('--cnot_dropout_prob', type=float, default=0,
                         help='per-layer probability of dropping one CNOT during mutation (0 = disabled)')
-    parser.add_argument('--r_dropout_prob', type=float, default=0.125,
+    parser.add_argument('--r_dropout_prob', type=float, default=0,
                         help='per-layer probability of dropping one R gate during mutation (0 = disabled)')
     parser.add_argument('--lr', type=float, default=0.2, help='optimizer learning rate (step size)')
     parser.add_argument('--qng_lam', type=float, default=0.001, help='QNG regularization parameter')
@@ -159,6 +159,8 @@ def main():
                 "aging": args.use_aging,
                 "block_structure": args.block_structure,
                 "sandwich_layers": args.sandwich_layers,
+                "cnot_dropout_prob": args.cnot_dropout_prob,
+                "r_dropout_prob": args.r_dropout_prob,
                 "thesis_run": True,
                 "thesis_run_new": True
                 

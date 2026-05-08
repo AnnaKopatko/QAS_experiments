@@ -70,5 +70,5 @@ SearchSpace:
   
   # how many repeats of the valid Rs for the search space
   num_repears: 2
-  n_rotations_per_layer: 3
-  n_cnots_per_layer: 2
+  n_rotations_per_layer: 2
+  n_cnots_per_layer: 1

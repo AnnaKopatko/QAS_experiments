@@ -22,3 +22,8 @@ datasets/
 .aim/
 *.txt
 *.svg
+*.pdf
+*.png
+
+aim_copy/
+other/
