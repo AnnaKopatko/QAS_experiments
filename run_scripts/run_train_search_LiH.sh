@@ -52,7 +52,7 @@ set -e
 COMMON_ARGS="--n_experts 5 \
              --n_search 500 \
              --ea_pop_size 50 \
-             --ea_gens 20 \
+             --ea_gens 2 \
              --searcher evolution \
              --finetune_epochs 150 \
              --warmup_epochs 200
